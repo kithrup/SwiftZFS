@@ -127,50 +127,13 @@ namespace zfs {
 					zfs_prop_get_int(handle.get(), ZFS_PROP_GUID));
 		}
 
-	DatasetProperty::DatasetProperty(std::string name, std::string value,
-			PropertySource source, PropertyType type, bool readonly)
-		: name_(std::move(name)), value_(std::move(value)), source_(source),
-		type_(type), readonly_(readonly)
-	{
-	}
-
-	const std::string&
-		DatasetProperty::name() const noexcept
-		{
-			return name_;
-		}
-
-	const std::string&
-		DatasetProperty::value() const noexcept
-		{
-			return value_;
-		}
-
-	PropertySource
-		DatasetProperty::source() const noexcept
-		{
-			return source_;
-		}
-
-	PropertyType
-		DatasetProperty::type() const noexcept
-		{
-			return type_;
-		}
-
-	bool
-		DatasetProperty::readonly() const noexcept
-		{
-			return readonly_;
-		}
-
-	std::vector<DatasetProperty>
+	std::vector<Property>
 		Dataset::properties() const
 		{
 			DatasetHandle dataset(impl_->open());
 			zfs_handle_t* handle = dataset.get();
 			const zfs_type_t dataset_type = zfs_get_type(handle);
-			std::vector<DatasetProperty> result;
+			std::vector<Property> result;
 			char value[ZFS_MAXPROPLEN];
 			char source_location[ZFS_MAX_DATASET_NAME_LEN];
 
@@ -186,7 +149,7 @@ namespace zfs {
 					detail::throw_libzfs_error(*impl_->context(), zfs_prop_to_name(prop));
 				}
 
-				result.push_back(DatasetProperty(zfs_prop_to_name(prop), value,
+				result.push_back(Property(zfs_prop_to_name(prop), value,
 							property_source(source), property_type(prop),
 							zfs_prop_readonly(prop) != B_FALSE));
 			}
@@ -204,7 +167,7 @@ namespace zfs {
 					continue;
 
 				(void) nvlist_lookup_string(prop_value, ZPROP_SOURCE, &source_string);
-				result.push_back(DatasetProperty(nvpair_name(pair), value_string,
+				result.push_back(Property(nvpair_name(pair), value_string,
 							user_property_source(source_string, zfs_get_name(handle)),
 							PropertyType::string, false));
 			}
@@ -212,7 +175,7 @@ namespace zfs {
 			return result;
 		}
 
-	DatasetProperty
+	Property
 		Dataset::property(const std::string& name) const
 		{
 			DatasetHandle dataset(impl_->open());
@@ -228,7 +191,7 @@ namespace zfs {
 							source_location, sizeof(source_location), B_FALSE) != 0) {
 					detail::throw_libzfs_error(*impl_->context(), name.c_str());
 				}
-				return DatasetProperty(name, value, property_source(source),
+				return Property(name, value, property_source(source),
 						property_type(prop), zfs_prop_readonly(prop) != B_FALSE);
 			}
 
@@ -241,7 +204,7 @@ namespace zfs {
 						nvlist_lookup_nvlist(user_props, name.c_str(), &prop_value) == 0 &&
 						nvlist_lookup_string(prop_value, ZPROP_VALUE, &value_string) == 0) {
 					(void) nvlist_lookup_string(prop_value, ZPROP_SOURCE, &source_string);
-					return DatasetProperty(name, value_string,
+					return Property(name, value_string,
 							user_property_source(source_string, zfs_get_name(handle)),
 							PropertyType::string, false);
 				}

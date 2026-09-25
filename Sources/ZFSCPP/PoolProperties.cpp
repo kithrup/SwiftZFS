@@ -7,7 +7,7 @@
 
 namespace zfs {
 
-	PoolProperty::PoolProperty(std::string name, std::string value,
+	Property::Property(std::string name, std::string value,
 			PropertySource source, PropertyType type, bool readonly)
 		: name_(std::move(name)), value_(std::move(value)), source_(source),
 		type_(type), readonly_(readonly)
@@ -15,31 +15,31 @@ namespace zfs {
 	}
 
 	const std::string&
-		PoolProperty::name() const noexcept
+		Property::name() const noexcept
 		{
 			return name_;
 		}
 
 	const std::string&
-		PoolProperty::value() const noexcept
+		Property::value() const noexcept
 		{
 			return value_;
 		}
 
 	PropertySource
-		PoolProperty::source() const noexcept
+		Property::source() const noexcept
 		{
 			return source_;
 		}
 
 	PropertyType
-		PoolProperty::type() const noexcept
+		Property::type() const noexcept
 		{
 			return type_;
 		}
 
 	bool
-		PoolProperty::readonly() const noexcept
+		Property::readonly() const noexcept
 		{
 			return readonly_;
 		}
@@ -190,13 +190,13 @@ namespace zfs {
 
 	} // namespace
 
-	std::vector<PoolProperty>
+	std::vector<Property>
 		Pool::properties() const
 		{
 			PropertyList list(impl_->context()->handle());
 			list.expand(impl_->handle());
 
-			std::vector<PoolProperty> result;
+			std::vector<Property> result;
 			char value[ZPOOL_MAXPROPLEN];
 
 			for (zprop_list_t* item = list.head(); item != nullptr; item = item->pl_next) {
@@ -214,7 +214,7 @@ namespace zfs {
 					detail::throw_libzfs_error(*impl_->context(), prop_name);
 				}
 
-				PoolProperty property(prop_name, value, property_source(source),
+				Property property(prop_name, value, property_source(source),
 						property_type(prop), zpool_prop_readonly(prop) != B_FALSE);
 				result.push_back(std::move(property));
 			}
