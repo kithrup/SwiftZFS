@@ -153,6 +153,8 @@ private:
 };
 
 
+class Snapshot;
+
 class Dataset {
 public:
     Dataset(Dataset&&) noexcept;
@@ -168,6 +170,11 @@ public:
     std::vector<Property> properties() const;
     Property property(const std::string& name) const;
 
+    virtual bool is_filesystem() const noexcept;
+    virtual bool is_volume() const noexcept;
+    virtual bool is_snapshot() const noexcept;
+    virtual std::vector<Snapshot> snapshots() const;
+
 protected:
     friend class Pool;
 
@@ -181,6 +188,8 @@ class Filesystem final : public Dataset {
 public:
     Filesystem(Filesystem&&) noexcept = default;
     Filesystem& operator=(Filesystem&&) noexcept = default;
+
+    bool is_filesystem() const noexcept override;
 
     bool mounted() const;
     std::string mountpoint() const;
@@ -196,6 +205,8 @@ public:
     Volume(Volume&&) noexcept = default;
     Volume& operator=(Volume&&) noexcept = default;
 
+    bool is_volume() const noexcept override;
+
     std::uint64_t size() const;
     std::uint64_t block_size() const;
 
@@ -203,6 +214,20 @@ private:
     friend class Pool;
 
     explicit Volume(std::shared_ptr<Impl> impl) noexcept;
+};
+
+class Snapshot final : public Dataset {
+public:
+    Snapshot(Snapshot&&) noexcept = default;
+    Snapshot& operator=(Snapshot&&) noexcept = default;
+
+    bool is_snapshot() const noexcept override;
+    std::vector<Snapshot> snapshots() const override;
+
+private:
+    friend class Dataset;
+
+    explicit Snapshot(std::shared_ptr<Impl> impl) noexcept;
 };
 
 class DatasetCollection {

@@ -74,12 +74,21 @@ main()
 
             std::cout << "  filesystems:\n";
             const auto filesystem_details_start = std::chrono::steady_clock::now();
+	    bool show_snapshots = true;
+
             for (const auto& filesystem : datasets.filesystems()) {
                 std::cout << "    " << filesystem.name()
                           << " [0x" << std::hex << filesystem.guid() << std::dec << "]"
                           << " mounted=" << (filesystem.mounted() ? "yes" : "no")
                           << " mountpoint=" << filesystem.mountpoint()
                           << '\n';
+		if (show_snapshots) {
+			for (const auto& snapshot: filesystem.snapshots()) {
+				std::cout << "        " << snapshot.name()
+					   << std::endl;
+			}
+			show_snapshots = false;
+		}
             }
             const auto filesystem_details_stop = std::chrono::steady_clock::now();
             std::cerr << "[timing] " << pool.name()

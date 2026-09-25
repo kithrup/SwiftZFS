@@ -113,6 +113,24 @@ namespace zfs {
 	Dataset& Dataset::operator=(Dataset&&) noexcept = default;
 	Dataset::~Dataset() = default;
 
+	bool
+		Dataset::is_filesystem() const noexcept
+		{
+			return false;
+		}
+
+	bool
+		Dataset::is_volume() const noexcept
+		{
+			return false;
+		}
+
+	bool
+		Dataset::is_snapshot() const noexcept
+		{
+			return false;
+		}
+
 	std::string
 		Dataset::name() const
 		{
@@ -214,9 +232,58 @@ namespace zfs {
 					"dataset property not found: " + name);
 		}
 
+	std::vector<Snapshot>
+		Dataset::snapshots() const
+		{
+			DatasetHandle dataset(impl_->open());
+			std::vector<Snapshot> result;
+			std::exception_ptr exception;
+
+			struct IteratorState {
+				std::shared_ptr<detail::Context> context;
+				std::vector<Snapshot>* snapshots;
+				std::exception_ptr* exception;
+			} state { impl_->context(), &result, &exception };
+
+			auto callback = [](zfs_handle_t* handle, void* arg) -> int {
+				auto* state = static_cast<IteratorState*>(arg);
+
+				try {
+					const char* snapshot_name = zfs_get_name(handle);
+					if (snapshot_name != nullptr) {
+						auto snapshot_impl = std::make_shared<Dataset::Impl>(
+							state->context, snapshot_name, ZFS_TYPE_SNAPSHOT);
+						state->snapshots->push_back(Snapshot(snapshot_impl));
+					}
+					zfs_close(handle);
+					return 0;
+				} catch (...) {
+					zfs_close(handle);
+					*state->exception = std::current_exception();
+					return 1;
+				}
+			};
+
+			const int error = zfs_iter_snapshots_v2(dataset.get(), ZFS_ITER_SIMPLE,
+					callback, &state, 0, 0);
+			if (exception != nullptr)
+				std::rethrow_exception(exception);
+			if (error != 0)
+				detail::throw_libzfs_error(*impl_->context(),
+						"zfs_iter_snapshots_v2()");
+
+			return result;
+		}
+
 	Filesystem::Filesystem(std::shared_ptr<Impl> impl) noexcept
 		: Dataset(std::move(impl))
 		{
+		}
+
+	bool
+		Filesystem::is_filesystem() const noexcept
+		{
+			return true;
 		}
 
 	bool
@@ -248,6 +315,12 @@ namespace zfs {
 		{
 		}
 
+	bool
+		Volume::is_volume() const noexcept
+		{
+			return true;
+		}
+
 	std::uint64_t
 		Volume::size() const
 		{
@@ -262,6 +335,23 @@ namespace zfs {
 			DatasetHandle handle(impl_->open());
 			return static_cast<std::uint64_t>(
 					zfs_prop_get_int(handle.get(), ZFS_PROP_VOLBLOCKSIZE));
+		}
+
+	Snapshot::Snapshot(std::shared_ptr<Impl> impl) noexcept
+		: Dataset(std::move(impl))
+		{
+		}
+
+	bool
+		Snapshot::is_snapshot() const noexcept
+		{
+			return true;
+		}
+
+	std::vector<Snapshot>
+		Snapshot::snapshots() const
+		{
+			return {};
 		}
 
 	const std::vector<Filesystem>&
