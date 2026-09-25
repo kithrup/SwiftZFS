@@ -1,5 +1,5 @@
 AC_PREREQ([2.69])
-AC_INIT([SwiftZFS], [0.6.0], [none])
+AC_INIT([SwiftZFS], [0.6.1], [none])
 AC_CONFIG_SRCDIR([Package.swift])
 AC_CANONICAL_HOST
 AC_PROG_CC
@@ -9,29 +9,69 @@ AC_ARG_WITH(
     [zfs-includedir],
     [AS_HELP_STRING([--with-zfs-includedir=DIR],
         [directory containing installed libzfs.h, or an OpenZFS source-tree include directory])],
-    [ZFS_INCLUDEDIR="$withval"],
+    [ZFS_INCLUDEDIR="$withval"; SWIFTZFS_ZFS_OVERRIDE=yes],
     [ZFS_INCLUDEDIR=""])
 
 AC_ARG_WITH(
     [zfs-libdir],
     [AS_HELP_STRING([--with-zfs-libdir=DIR],
         [directory containing OpenZFS libraries])],
-    [ZFS_LIBDIR="$withval"],
+    [ZFS_LIBDIR="$withval"; SWIFTZFS_ZFS_OVERRIDE=yes],
     [ZFS_LIBDIR=""])
 
 AC_ARG_WITH(
     [zfs-source],
     [AS_HELP_STRING([--with-zfs-source=DIR],
         [OpenZFS source-tree root (normally inferred from --with-zfs-includedir)])],
-    [ZFS_SOURCE_DIR="$withval"],
+    [ZFS_SOURCE_DIR="$withval"; SWIFTZFS_ZFS_OVERRIDE=yes],
     [ZFS_SOURCE_DIR=""])
 
 AC_ARG_WITH(
     [zfs-build],
     [AS_HELP_STRING([--with-zfs-build=DIR],
         [configured OpenZFS build-tree root; defaults to source root for an in-tree build])],
-    [ZFS_BUILD_DIR="$withval"],
+    [ZFS_BUILD_DIR="$withval"; SWIFTZFS_ZFS_OVERRIDE=yes],
     [ZFS_BUILD_DIR=""])
+
+
+SWIFTZFS_ZFS_OVERRIDE=${SWIFTZFS_ZFS_OVERRIDE:-no}
+ZFS_PROVIDER="unknown"
+
+# On FreeBSD, OpenZFS is normally supplied by the base system.  When the
+# caller has not requested an alternate source/build/install tree, verify that
+# the base headers and shared libraries work with no additional -I or -L
+# options.  This is deliberately a compile-and-link test rather than a simple
+# header existence check.
+case "$host_os" in
+    freebsd*)
+        if test "x$SWIFTZFS_ZFS_OVERRIDE" = "xno"; then
+            AC_MSG_CHECKING([for FreeBSD base-system OpenZFS])
+            swiftzfs_save_LIBS="$LIBS"
+            LIBS="-lzfs -lnvpair $LIBS"
+            AC_LANG_PUSH([C++])
+            AC_LINK_IFELSE(
+                [AC_LANG_PROGRAM(
+                    [[#include <libzfs.h>]],
+                    [[
+                        libzfs_handle_t *hdl = libzfs_init();
+                        if (hdl != nullptr)
+                            libzfs_fini(hdl);
+                    ]])],
+                [swiftzfs_have_freebsd_base_zfs=yes],
+                [swiftzfs_have_freebsd_base_zfs=no])
+            AC_LANG_POP([C++])
+            LIBS="$swiftzfs_save_LIBS"
+
+            if test "x$swiftzfs_have_freebsd_base_zfs" = "xyes"; then
+                AC_MSG_RESULT([yes])
+                ZFS_PROVIDER="FreeBSD base system"
+            else
+                AC_MSG_RESULT([no])
+                AC_MSG_ERROR([FreeBSD base-system OpenZFS could not be compiled and linked. See config.log, or select an alternate OpenZFS tree with --with-zfs-source/--with-zfs-build/--with-zfs-libdir.])
+            fi
+        fi
+        ;;
+esac
 
 # Canonicalize user-supplied directories early.  This also makes the generated
 # Swift compiler flags independent of the directory from which make is run.
@@ -74,6 +114,14 @@ fi
 if test -z "$ZFS_LIBDIR" && test -n "$ZFS_BUILD_DIR" && \
    test -d "$ZFS_BUILD_DIR/.libs"; then
     ZFS_LIBDIR="$ZFS_BUILD_DIR/.libs"
+fi
+
+if test -n "$ZFS_SOURCE_DIR"; then
+    ZFS_PROVIDER="OpenZFS source/build tree"
+elif test "x$SWIFTZFS_ZFS_OVERRIDE" = "xyes"; then
+    ZFS_PROVIDER="custom OpenZFS installation"
+elif test "x$ZFS_PROVIDER" = "xunknown"; then
+    ZFS_PROVIDER="system default"
 fi
 
 ZFS_CPPFLAGS=""
@@ -162,6 +210,7 @@ AS_IF([test "x$HAVE_LIBZPOOL" != "xyes"], [
     AC_MSG_WARN([libzpool probe failed; the current skeleton does not use it yet])
 ])
 
+AC_SUBST([ZFS_PROVIDER])
 AC_SUBST([ZFS_CPPFLAGS])
 AC_SUBST([SWIFT_LINKER_FLAGS])
 AC_SUBST([ZFS_INCLUDEDIR])
@@ -174,6 +223,7 @@ AC_OUTPUT
 
 AC_MSG_NOTICE([SwiftZFS configuration:])
 AC_MSG_NOTICE([  host:               $host])
+AC_MSG_NOTICE([  ZFS provider:        $ZFS_PROVIDER])
 AC_MSG_NOTICE([  ZFS source dir:     ${ZFS_SOURCE_DIR:-not a source-tree build}])
 AC_MSG_NOTICE([  ZFS build dir:      ${ZFS_BUILD_DIR:-not a source-tree build}])
 AC_MSG_NOTICE([  ZFS include dir:    ${ZFS_INCLUDEDIR:-system default}])

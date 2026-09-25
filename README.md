@@ -1,4 +1,4 @@
-# SwiftZFS C++ skeleton 0.6.0
+# SwiftZFS C++ skeleton 0.6.1
 
 This revision splits the C++ implementation into multiple translation units while
 preserving the public API and the fast dataset enumeration path developed in
