@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+Makefile
+config.log
+config.status
+config.guess
+config.sub
+configure
+aclocal.m4
+autom4te.cache/
+configure
