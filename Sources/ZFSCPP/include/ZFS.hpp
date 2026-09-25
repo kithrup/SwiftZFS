@@ -105,6 +105,27 @@ enum class PropertyType {
     unknown
 };
 
+class DatasetProperty {
+public:
+    const std::string& name() const noexcept;
+    const std::string& value() const noexcept;
+    PropertySource source() const noexcept;
+    PropertyType type() const noexcept;
+    bool readonly() const noexcept;
+
+private:
+    friend class Dataset;
+
+    DatasetProperty(std::string name, std::string value,
+        PropertySource source, PropertyType type, bool readonly);
+
+    std::string name_;
+    std::string value_;
+    PropertySource source_ = PropertySource::unknown;
+    PropertyType type_ = PropertyType::unknown;
+    bool readonly_ = false;
+};
+
 class PoolProperty {
 public:
     const std::string& name() const noexcept;
@@ -164,6 +185,8 @@ public:
 
     std::string name() const;
     std::uint64_t guid() const;
+    std::vector<DatasetProperty> properties() const;
+    DatasetProperty property(const std::string& name) const;
 
 protected:
     friend class Pool;
