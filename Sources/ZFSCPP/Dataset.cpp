@@ -86,6 +86,38 @@ namespace zfs {
 				return PropertySource::inherited;
 			}
 
+		/* RAII owner for a temporary property nvlist. */
+		class PropertyList {
+			public:
+				PropertyList()
+				{
+					if (nvlist_alloc(&list_, NV_UNIQUE_NAME, 0) != 0)
+						throw Error(Error::Code::no_memory, 0,
+								"nvlist_alloc() failed");
+				}
+
+				~PropertyList()
+				{
+					if (list_ != nullptr)
+						nvlist_free(list_);
+				}
+
+				PropertyList(const PropertyList&) = delete;
+				PropertyList& operator=(const PropertyList&) = delete;
+
+				void add(const std::string& name, const std::string& value)
+				{
+					if (nvlist_add_string(list_, name.c_str(), value.c_str()) != 0)
+						throw Error(Error::Code::no_memory, 0,
+								"nvlist_add_string() failed");
+				}
+
+				nvlist_t* get() const noexcept { return list_; }
+
+			private:
+				nvlist_t* list_ = nullptr;
+		};
+
 		/* RAII owner for a lazily opened zfs_handle_t. */
 		class DatasetHandle {
 			public:
@@ -286,6 +318,43 @@ namespace zfs {
 			return result;
 		}
 
+	Snapshot
+		Dataset::create_snapshot(const std::string& snapshot_name,
+				const PropertyValues& properties) const
+		{
+			if (is_snapshot()) {
+				throw Error(Error::Code::invalid_argument, 0,
+						"cannot create a snapshot of a snapshot");
+			}
+			if (snapshot_name.empty()) {
+				throw Error(Error::Code::invalid_argument, 0,
+						"snapshot name must not be empty");
+			}
+
+			std::unique_ptr<PropertyList> property_list;
+			if (!properties.empty()) {
+				property_list = std::make_unique<PropertyList>();
+				for (const auto& [name, value] : properties) {
+					if (zfs_prop_user(name.c_str()) == B_FALSE) {
+						throw Error(Error::Code::invalid_argument, 0,
+								"snapshot property is not a user property: " + name);
+					}
+					property_list->add(name, value);
+				}
+			}
+
+			const std::string full_name = name() + "@" + snapshot_name;
+			nvlist_t* props = property_list != nullptr ? property_list->get() : nullptr;
+			if (zfs_snapshot(impl_->context()->handle(), full_name.c_str(), B_FALSE,
+						props) != 0) {
+				detail::throw_libzfs_error(*impl_->context(), "zfs_snapshot()");
+			}
+
+			auto snapshot_impl = std::make_shared<Dataset::Impl>(
+					impl_->context(), full_name, ZFS_TYPE_SNAPSHOT);
+			return Snapshot(std::move(snapshot_impl));
+		}
+
 	Filesystem::Filesystem(std::shared_ptr<Impl> impl) noexcept
 		: Dataset(std::move(impl))
 		{
@@ -363,6 +432,13 @@ namespace zfs {
 		Snapshot::snapshots() const
 		{
 			return {};
+		}
+
+	Snapshot
+		Snapshot::create_snapshot(const std::string&, const PropertyValues&) const
+		{
+			throw Error(Error::Code::invalid_argument, 0,
+					"cannot create a snapshot of a snapshot");
 		}
 
 	const std::vector<Filesystem>&

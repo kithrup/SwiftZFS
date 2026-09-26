@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -20,6 +21,15 @@
 
 /** Public API for the C++ OpenZFS wrapper. */
 namespace zfs {
+
+/**
+ * Property name/value pairs supplied when creating or modifying ZFS objects.
+ *
+ * The key is the ZFS property name and the mapped value is the string value
+ * passed to OpenZFS.  Snapshot creation currently accepts user properties
+ * only.
+ */
+using PropertyValues = std::map<std::string, std::string>;
 
 /**
  * Exception raised by the C++ ZFS wrapper.
@@ -448,6 +458,28 @@ public:
      */
     virtual std::vector<Snapshot> snapshots() const;
 
+    /**
+     * Create a snapshot of this dataset.
+     *
+     * Snapshot names are relative names such as "before-upgrade"; the wrapper
+     * constructs the full OpenZFS snapshot name from this dataset's name.
+     * Snapshot creation properties are limited to user-defined properties.
+     *
+     * @param snapshot_name Snapshot component name, without the dataset name or
+     *        the '@' separator.
+     * @param properties Optional user properties to set atomically on the new
+     *        snapshot.
+     * @return A Snapshot representing the newly created snapshot.
+     * @throws zfs::Error with Error::Code::invalid_argument if snapshot_name is
+     *         empty, this object is itself a snapshot, or a property name is not
+     *         a valid ZFS user property.
+     * @throws zfs::Error if OpenZFS rejects or fails snapshot creation.
+     * @throws std::bad_alloc if temporary or result storage cannot be allocated.
+     */
+    virtual Snapshot create_snapshot(
+        const std::string& snapshot_name,
+        const PropertyValues& properties = {}) const;
+
 protected:
     friend class Pool;
 
@@ -603,6 +635,19 @@ public:
      * @throws Nothing except allocation failure permitted by std::vector.
      */
     std::vector<Snapshot> snapshots() const override;
+
+    /**
+     * Reject attempts to create a snapshot of a snapshot.
+     *
+     * @param snapshot_name Requested child snapshot name.
+     * @param properties Requested child snapshot properties.
+     * @return This method never returns.
+     * @throws zfs::Error with Error::Code::invalid_argument always, because a
+     *         snapshot cannot contain another snapshot.
+     */
+    Snapshot create_snapshot(
+        const std::string& snapshot_name,
+        const PropertyValues& properties = {}) const override;
 
 private:
     friend class Dataset;
