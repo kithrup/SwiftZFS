@@ -422,7 +422,18 @@ namespace zfs {
 			 * @return Reference to the filesystem collection owned by this object.
 			 * @throws Nothing.
 			 */
-			const std::vector<Filesystem>& filesystems() const noexcept;
+			const std::vector<Filesystem>& filesystems() const & noexcept;
+
+			/**
+			 * Move all filesystem datasets out of a temporary collection.
+			 *
+			 * This overload is intended for adapters such as the C ABI that need to
+			 * transfer ownership without performing another dataset traversal.
+			 *
+			 * @return The filesystem collection by value.
+			 * @throws Nothing.
+			 */
+			std::vector<Filesystem> filesystems() && noexcept;
 
 			/**
 			 * Return all volume datasets discovered by the traversal.
@@ -430,7 +441,15 @@ namespace zfs {
 			 * @return Reference to the volume collection owned by this object.
 			 * @throws Nothing.
 			 */
-			const std::vector<Volume>& volumes() const noexcept;
+			const std::vector<Volume>& volumes() const & noexcept;
+
+			/**
+			 * Move all volume datasets out of a temporary collection.
+			 *
+			 * @return The volume collection by value.
+			 * @throws Nothing.
+			 */
+			std::vector<Volume> volumes() && noexcept;
 
 		private:
 			friend class Pool;

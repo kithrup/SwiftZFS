@@ -1,4 +1,5 @@
 SWIFT ?= swift
+CC ?= cc
 CXX ?= c++
 DOXYGEN ?= doxygen
 SWIFTZFS_CXXFLAGS = @ZFS_CPPFLAGS@
@@ -17,12 +18,16 @@ CPP_LIBRARY_SOURCES = \
 	Sources/ZFSCPP/ZFSManager.cpp
 CPP_LIBRARY_OBJS = $(patsubst Sources/ZFSCPP/%.cpp,$(CPP_BUILD_DIR)/%.o,$(CPP_LIBRARY_SOURCES))
 CPP_LIST_POOLS = $(CPP_BUILD_DIR)/list-pools
+C_SHIM_OBJ = $(CPP_BUILD_DIR)/CZFS.o
+C_SHIM_TEST_OBJ = $(CPP_BUILD_DIR)/c-shim-test.o
+C_SHIM_TEST = $(CPP_BUILD_DIR)/c-shim-test
 CPPFLAGS_LOCAL = -ISources/ZFSCPP/include -ISources/ZFSCPP
+C_SHIM_CPPFLAGS = -ISources/CZFS/include -ISources/ZFSCPP/include
 CXXFLAGS_LOCAL = -std=c++17 -Wall -Wextra -Werror
 
-.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run docs
+.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run c-shim-build c-shim-test c-shim-run docs
 
-all: cpp-build
+all: cpp-build c-shim-build
 
 $(CPP_BUILD_DIR):
 	mkdir -p $(CPP_BUILD_DIR)
@@ -40,6 +45,23 @@ cpp-test: $(CPP_LIST_POOLS)
 
 cpp-run: $(CPP_LIST_POOLS)
 	$(CPP_LIST_POOLS)
+
+$(C_SHIM_OBJ): Sources/CZFS/SwiftZFS.cpp Sources/CZFS/include/SwiftZFS.h Sources/ZFSCPP/include/ZFS.hpp | $(CPP_BUILD_DIR)
+	$(CXX) $(CXXFLAGS_LOCAL) $(C_SHIM_CPPFLAGS) -c Sources/CZFS/SwiftZFS.cpp -o $@
+
+$(C_SHIM_TEST_OBJ): Tests/c/c-shim.c Sources/CZFS/include/SwiftZFS.h | $(CPP_BUILD_DIR)
+	$(CC) -std=c11 -Wall -Wextra -Werror -ISources/CZFS/include -c Tests/c/c-shim.c -o $@
+
+$(C_SHIM_TEST): $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) | $(CPP_BUILD_DIR)
+	$(CXX) $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) -lzfs -lzfs_core -lnvpair $(SWIFTZFS_LINKER_FLAGS) -o $@
+
+c-shim-build: $(C_SHIM_TEST)
+
+c-shim-test: $(C_SHIM_TEST)
+	$(C_SHIM_TEST) >/dev/null
+
+c-shim-run: $(C_SHIM_TEST)
+	$(C_SHIM_TEST)
 
 docs:
 	@command -v $(DOXYGEN) >/dev/null 2>&1 || { \

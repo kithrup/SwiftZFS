@@ -525,15 +525,27 @@ namespace zfs {
 		}
 
 	const std::vector<Filesystem>&
-		DatasetCollection::filesystems() const noexcept
+		DatasetCollection::filesystems() const & noexcept
 		{
 			return filesystems_;
 		}
 
+	std::vector<Filesystem>
+		DatasetCollection::filesystems() && noexcept
+		{
+			return std::move(filesystems_);
+		}
+
 	const std::vector<Volume>&
-		DatasetCollection::volumes() const noexcept
+		DatasetCollection::volumes() const & noexcept
 		{
 			return volumes_;
+		}
+
+	std::vector<Volume>
+		DatasetCollection::volumes() && noexcept
+		{
+			return std::move(volumes_);
 		}
 
 	DatasetCollection

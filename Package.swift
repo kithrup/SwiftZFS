@@ -25,8 +25,8 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "CZFS",
-            path: "Sources/CZFS",
+            name: "ZFSCPP",
+            path: "Sources/ZFSCPP",
             publicHeadersPath: "include",
             cxxSettings: [
                 .headerSearchPath("internal"),
@@ -37,8 +37,15 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("zfs"),
                 .linkedLibrary("zfs_core"),
+                .linkedLibrary("nvpair"),
                 .unsafeFlags(zfsLinkerFlags),
             ]
+        ),
+        .target(
+            name: "CZFS",
+            dependencies: ["ZFSCPP"],
+            path: "Sources/CZFS",
+            publicHeadersPath: "include"
         ),
         .target(
             name: "ZFS",
