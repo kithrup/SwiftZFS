@@ -1,5 +1,6 @@
 SWIFT ?= swift
 CXX ?= c++
+DOXYGEN ?= doxygen
 SWIFTZFS_CXXFLAGS = @ZFS_CPPFLAGS@
 SWIFTZFS_LINKER_FLAGS = @SWIFT_LINKER_FLAGS@
 
@@ -19,7 +20,7 @@ CPP_LIST_POOLS = $(CPP_BUILD_DIR)/list-pools
 CPPFLAGS_LOCAL = -ISources/ZFSCPP/include -ISources/ZFSCPP
 CXXFLAGS_LOCAL = -std=c++17 -Wall -Wextra -Werror
 
-.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run
+.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run docs
 
 all: cpp-build
 
@@ -39,6 +40,13 @@ cpp-test: $(CPP_LIST_POOLS)
 
 cpp-run: $(CPP_LIST_POOLS)
 	$(CPP_LIST_POOLS)
+
+docs:
+	@command -v $(DOXYGEN) >/dev/null 2>&1 || { \
+		echo "error: doxygen not found; install Doxygen or set DOXYGEN=/path/to/doxygen" >&2; \
+		exit 1; \
+	}
+	$(DOXYGEN) Doxyfile
 
 # Existing Swift layer retained for later work, but it is no longer the
 # default while the C++ API is being designed.
