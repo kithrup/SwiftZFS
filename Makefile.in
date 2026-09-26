@@ -25,6 +25,10 @@ CPP_LIBRARY_SOURCES = \
 	Sources/ZFSCPP/ZFSManager.cpp
 CPP_LIBRARY_OBJS = $(patsubst Sources/ZFSCPP/%.cpp,$(CPP_BUILD_DIR)/%.o,$(CPP_LIBRARY_SOURCES))
 CPP_LIBRARY = $(CPP_BUILD_DIR)/libswiftzfs_cpp.a
+CPP_PUBLIC_HEADERS = $(wildcard Sources/ZFSCPP/include/*.hpp)
+CPP_EXAMPLE_HEADERS = $(CPP_BUILD_DIR)/include/swiftzfs/.stamp
+CPP_EXAMPLE_NAMES = list-pools list-datasets list-snapshots
+CPP_EXAMPLE_BINS = $(addprefix $(CPP_BUILD_DIR)/examples/,$(CPP_EXAMPLE_NAMES))
 CPP_LIST_POOLS = $(CPP_BUILD_DIR)/list-pools
 C_SHIM_OBJ = $(CPP_BUILD_DIR)/CZFS.o
 C_SHIM_TEST_OBJ = $(CPP_BUILD_DIR)/c-shim-test.o
@@ -33,7 +37,7 @@ CPPFLAGS_LOCAL = -ISources/ZFSCPP/include -ISources/ZFSCPP
 C_SHIM_CPPFLAGS = -ISources/CZFS/include -ISources/ZFSCPP/include
 CXXFLAGS_LOCAL = -std=c++17 -Wall -Wextra -Werror
 
-.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run cpp-install c-shim-build c-shim-test c-shim-run docs
+.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run cpp-install cpp-examples swift-examples c-shim-build c-shim-test c-shim-run docs
 
 all: cpp-build c-shim-build
 
@@ -51,6 +55,19 @@ $(CPP_LIST_POOLS): Tests/cpp/list-pools.cpp $(CPP_LIBRARY) Sources/ZFSCPP/includ
 	$(CXX) $(CXXFLAGS_LOCAL) $(SWIFTZFS_CXXFLAGS) $(CPPFLAGS_LOCAL) Tests/cpp/list-pools.cpp $(CPP_LIBRARY) -lzfs -lzfs_core -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
 
 cpp-build: $(CPP_LIBRARY) $(CPP_LIST_POOLS)
+
+$(CPP_EXAMPLE_HEADERS): $(CPP_PUBLIC_HEADERS) | $(CPP_BUILD_DIR)
+	$(INSTALL) -d $(CPP_BUILD_DIR)/include/swiftzfs
+	$(INSTALL) -m 644 $(CPP_PUBLIC_HEADERS) $(CPP_BUILD_DIR)/include/swiftzfs/
+	touch $@
+
+$(CPP_BUILD_DIR)/examples:
+	mkdir -p $@
+
+$(CPP_BUILD_DIR)/examples/%: examples/C++/%.cpp $(CPP_LIBRARY) $(CPP_EXAMPLE_HEADERS) | $(CPP_BUILD_DIR)/examples
+	$(CXX) $(CXXFLAGS_LOCAL) -I$(CPP_BUILD_DIR)/include $< $(CPP_LIBRARY) -lzfs -lzfs_core -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
+
+cpp-examples: $(CPP_EXAMPLE_BINS)
 
 cpp-install: $(CPP_LIBRARY) swiftzfs-cpp.pc
 	$(INSTALL) -d $(DESTDIR)$(includedir)/swiftzfs $(DESTDIR)$(libdir) $(DESTDIR)$(libdir)/pkgconfig
@@ -92,6 +109,9 @@ docs:
 # default while the C++ API is being designed.
 build debug:
 	$(SWIFT_ENV) $(SWIFT) build
+
+swift-examples:
+	$(SWIFT_ENV) $(SWIFT) build --package-path examples/Swift
 
 release:
 	$(SWIFT_ENV) $(SWIFT) build -c release

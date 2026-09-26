@@ -53,3 +53,9 @@ On FreeBSD, external SwiftPM builds need the `SWIFTZFS_CXXFLAGS` and
 `SWIFTZFS_LINKER_FLAGS` values from the configured `Makefile` in their
 environment. These flags supply the OpenZFS source compatibility headers and
 any custom library path.
+
+## Examples
+
+After `./configure`, run `gmake cpp-examples` and `gmake swift-examples` from
+the repository root. See [examples/README.md](examples/README.md) for the
+binary paths and command-line arguments.
