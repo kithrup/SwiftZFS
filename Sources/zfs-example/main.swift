@@ -23,6 +23,7 @@ struct ZFSExample {
 
                     for child in try pool.children() {
                         try printDataset(child, indent: "  ")
+                        print("\t\(child.name)")
                     }
                 }
             }

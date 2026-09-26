@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace zfs {
 	namespace detail {
@@ -154,6 +155,15 @@ namespace zfs {
 			 */
 			const std::shared_ptr<detail::Context>& context() const noexcept;
 
+			/** Return the OpenZFS dataset type recorded during enumeration. */
+			zfs_type_t type() const noexcept;
+
+			/** Add one immediate child discovered during bulk enumeration. */
+			void add_child(const std::shared_ptr<Impl>& child);
+
+			/** Return the immediate children discovered during bulk enumeration. */
+			const std::vector<std::shared_ptr<Impl>>& children() const noexcept;
+
 			/**
 			 * Open a full libzfs dataset handle for the stored name and type.
 			 *
@@ -168,6 +178,7 @@ namespace zfs {
 			std::shared_ptr<detail::Context> context_;
 			std::string name_;
 			zfs_type_t type_ = ZFS_TYPE_INVALID;
+			std::vector<std::shared_ptr<Impl>> children_;
 	};
 
 } // namespace zfs
