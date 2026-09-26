@@ -32,6 +32,12 @@ namespace zfs {
 			return context_;
 		}
 
+	/*
+	 * Dataset discovery stores only the dataset name and type.  A full libzfs
+	 * handle is opened lazily for operations that actually need properties or
+	 * mount state.  This avoids the substantial cost of fully populating every
+	 * handle during bulk enumeration.
+	 */
 	zfs_handle_t*
 		Dataset::Impl::open() const
 		{
@@ -80,6 +86,7 @@ namespace zfs {
 				return PropertySource::inherited;
 			}
 
+		/* RAII owner for a lazily opened zfs_handle_t. */
 		class DatasetHandle {
 			public:
 				explicit DatasetHandle(zfs_handle_t* handle) noexcept
@@ -264,6 +271,10 @@ namespace zfs {
 				}
 			};
 
+			/*
+			 * Snapshot discovery needs only names/types, so use the lightweight v2
+			 * iterator mode and close each iterator-owned handle immediately.
+			 */
 			const int error = zfs_iter_snapshots_v2(dataset.get(), ZFS_ITER_SIMPLE,
 					callback, &state, 0, 0);
 			if (exception != nullptr)
@@ -379,6 +390,13 @@ namespace zfs {
 				detail::throw_libzfs_error(*context, "zfs_open() root filesystem");
 
 			try {
+				/*
+				 * zfs_iter_filesystems_v2() deliberately excludes snapshots while
+				 * walking the filesystem/volume hierarchy.  ZFS_ITER_SIMPLE keeps the
+				 * iterator handles cheap; detailed handles are opened lazily later.
+				 * Filesystems and volumes are classified in one traversal to avoid two
+				 * complete walks of the same dataset tree.
+				 */
 				auto root_impl = std::make_shared<Dataset::Impl>(
 						context, zfs_get_name(root), ZFS_TYPE_FILESYSTEM);
 				result.filesystems_.push_back(Filesystem(root_impl));

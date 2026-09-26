@@ -6,6 +6,11 @@
 
 namespace zfs {
 
+	/*
+	 * ZFS owns the root libzfs context.  Pool and Dataset implementations keep
+	 * shared references to detail::Context so objects returned from a ZFS
+	 * instance can safely outlive the instance that discovered them.
+	 */
 	class ZFS::Impl {
 		public:
 			Impl()
@@ -62,6 +67,7 @@ namespace zfs {
 								new Pool::Impl(state->context, handle)));
 					state->pools.push_back(std::move(pool));
 				} catch (...) {
+					/* zpool_iter() transfers this handle to the callback. */
 					zpool_close(handle);
 					state->exception = std::current_exception();
 					return 1;

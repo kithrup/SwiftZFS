@@ -14,6 +14,12 @@ namespace zfs {
 						"libzfs_init() failed");
 			}
 
+			/*
+			 * Match the zfs(8) command-line tools: keep the libzfs mount-table
+			 * cache enabled for the lifetime of the context.  Re-reading the FreeBSD
+			 * mount table for each dataset handle is prohibitively expensive on
+			 * systems with many datasets.
+			 */
 			libzfs_mnttab_cache(handle_, B_TRUE);
 		}
 

@@ -94,6 +94,13 @@ namespace zfs {
 				return inherited == VDevRole::unknown ? VDevRole::data : inherited;
 			}
 
+		/*
+		 * A "hole" is an internal placeholder left behind for a removed
+		 * top-level vdev so vdev IDs remain stable.  It is not a usable device
+		 * and is therefore omitted from the public topology.  VDEV_TYPE_MISSING
+		 * is intentionally not filtered because a missing vdev is meaningful
+		 * pool state that callers need to see.
+		 */
 		bool
 			vdev_is_hole(nvlist_t* vdev)
 			{
