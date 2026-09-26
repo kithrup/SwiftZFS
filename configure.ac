@@ -4,6 +4,9 @@ AC_CONFIG_SRCDIR([Package.swift])
 AC_CANONICAL_HOST
 AC_PROG_CC
 AC_PROG_CXX
+AC_PROG_RANLIB
+AC_PROG_INSTALL
+AC_CHECK_TOOL([AR], [ar])
 
 AC_ARG_WITH(
     [zfs-includedir],
@@ -255,7 +258,7 @@ AC_SUBST([ZFS_LIBDIR])
 AC_SUBST([ZFS_SOURCE_DIR])
 AC_SUBST([ZFS_BUILD_DIR])
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile swiftzfs-cpp.pc])
 AC_OUTPUT
 
 AC_MSG_NOTICE([SwiftZFS configuration:])

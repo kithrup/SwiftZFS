@@ -21,6 +21,7 @@ let package = Package(
     name: "SwiftZFS",
     products: [
         .library(name: "ZFS", targets: ["ZFS"]),
+        .library(name: "ZFSCPP", targets: ["ZFSCPP"]),
         .executable(name: "zfs-example", targets: ["zfs-example"]),
     ],
     targets: [

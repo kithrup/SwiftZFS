@@ -6,6 +6,8 @@ config.status
 config.guess
 config.sub
 configure
+install-sh
+swiftzfs-cpp.pc
 aclocal.m4
 autom4te.cache/
 configure

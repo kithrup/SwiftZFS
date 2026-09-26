@@ -1,76 +1,55 @@
-# SwiftZFS C++ skeleton 0.6.1
+# SwiftZFS
 
-This revision splits the C++ implementation into multiple translation units while
-preserving the public API and the fast dataset enumeration path developed in
-0.5.x.
+SwiftZFS provides a C++17 interface to OpenZFS and a Swift interface built on
+that C++ layer through a C ABI. The Swift package exports two library products:
+`ZFSCPP` for C++ targets and `ZFS` for Swift targets.
 
-The public C++ API remains in:
+## Build
 
-    Sources/ZFSCPP/include/ZFS.hpp
+Run `./autogen.sh` if the `configure` script has not been generated, then run
+`./configure`. The configure script locates the OpenZFS headers and libraries.
+Use `--with-zfs-includedir` and `--with-zfs-libdir` for nonstandard locations.
 
-OpenZFS-specific types remain private to the implementation.
+``` tcsh
+./configure
+gmake cpp-build
+gmake build
+gmake test
+```
 
-## C++ source layout
+Use GNU make (`gmake`) on FreeBSD. The C++ build uses C++17 with strict
+warnings. `gmake docs` builds the C++ API reference when Doxygen is installed.
 
-    Sources/ZFSCPP/
-        Context.cpp             libzfs context lifetime and setup
-        Dataset.cpp             Dataset / Filesystem / Volume implementation
-        Error.cpp               zfs::Error implementation
-        Pool.cpp                Pool lifetime and basic pool operations
-        PoolProperties.cpp      pool properties and feature enumeration
-        VDev.cpp                vdev topology parsing
-        ZFSManager.cpp          zfs::ZFS and imported-pool enumeration
-        internal/ZFSInternal.hpp
-        include/ZFS.hpp
+## C++ applications
 
-`internal/ZFSInternal.hpp` contains the private implementation declarations
-shared by the translation units. It is not part of the public API.
+`gmake cpp-build` produces `.build-cpp/libswiftzfs_cpp.a`. To install the
+archive, public headers, and pkg-config metadata, configure an installation
+prefix and run `gmake cpp-install`:
 
-## Dataset enumeration
+``` tcsh
+./configure --prefix=/path/to/prefix
+gmake cpp-install
+```
 
-Dataset discovery retains the optimized path from the previous revision:
+`DESTDIR` can stage the installation. Installed C++ applications can include
+`<swiftzfs/ZFS.hpp>` and obtain compiler and linker flags with
+`pkg-config --cflags --libs swiftzfs-cpp`. Use a C++ compiler driver for the
+link step. SwiftPM C++ targets can instead depend on the `ZFSCPP` product.
 
-    zfs_iter_filesystems_v2(..., ZFS_ITER_SIMPLE, ...)
+## Swift applications
 
-A single traversal classifies filesystem and volume datasets. Full dataset
-handles are opened only when details such as GUID, mount state, mountpoint,
-volsize, or volblocksize are requested.
+Add this package as a SwiftPM dependency and depend on its `ZFS` product:
 
-## FreeBSD build
+``` swift
+dependencies: [.package(path: "/path/to/SwiftZFS")],
+targets: [
+    .executableTarget(name: "MyApp", dependencies: [
+        .product(name: "ZFS", package: "SwiftZFS")
+    ])
+]
+```
 
-For an in-tree configured OpenZFS checkout:
-
-    ./configure --with-zfs-includedir=${HOME}/src/sef-openzfs/include
-    gmake clean
-    gmake cpp-build
-    gmake cpp-run
-
-The generated Makefile currently uses GNU make syntax, so use `gmake` on
-FreeBSD.
-
-The C++ smoke program lists imported pools, properties, features, vdevs,
-filesystems, and volumes, and retains the timing output for dataset enumeration
-so the optimized traversal can be verified on FreeBSD.
-
-## Public design
-
-The current public model includes:
-
-    namespace zfs {
-        class ZFS;
-        class Pool;
-        class ImportablePool;
-        class VDev;
-        class Dataset;
-        class Filesystem;
-        class Volume;
-        class PoolProperty;
-        class PoolFeature;
-        class Error;
-    }
-
-`Dataset` is the common base for `Filesystem` and `Volume`. Filesystems expose
-mount-specific operations, while volumes expose volume-specific properties.
-
-Search/import/create, pool state/status, export/destroy, and several other
-operations remain API skeletons for later implementation.
+On FreeBSD, external SwiftPM builds need the `SWIFTZFS_CXXFLAGS` and
+`SWIFTZFS_LINKER_FLAGS` values from the configured `Makefile` in their
+environment. These flags supply the OpenZFS source compatibility headers and
+any custom library path.
