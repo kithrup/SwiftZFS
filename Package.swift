@@ -36,6 +36,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedLibrary("zfs"),
+                .linkedLibrary("zfs_core"),
                 .unsafeFlags(zfsLinkerFlags),
             ]
         ),

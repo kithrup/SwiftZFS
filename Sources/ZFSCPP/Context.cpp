@@ -1,6 +1,9 @@
 #include "internal/ZFSInternal.hpp"
 
+#include <libzfs_core.h>
+
 #include <cerrno>
+#include <cstring>
 #include <string>
 
 namespace zfs {
@@ -21,13 +24,24 @@ namespace zfs {
 			 * systems with many datasets.
 			 */
 			libzfs_mnttab_cache(handle_, B_TRUE);
+
+			const int core_error = libzfs_core_init();
+			if (core_error != 0) {
+				libzfs_fini(handle_);
+				handle_ = nullptr;
+				throw Error(Error::Code::initialization_failed, core_error,
+						std::string("libzfs_core_init() failed: ") +
+						std::strerror(core_error));
+			}
+			core_initialized_ = true;
 		}
 
 		Context::~Context()
 		{
-			if (handle_ != nullptr) {
+			if (core_initialized_)
+				libzfs_core_fini();
+			if (handle_ != nullptr)
 				libzfs_fini(handle_);
-			}
 		}
 
 		libzfs_handle_t*

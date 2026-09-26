@@ -32,6 +32,19 @@ namespace zfs {
 using PropertyValues = std::map<std::string, std::string>;
 
 /**
+ * Options controlling the format of a ZFS send stream.
+ *
+ * The flags correspond to stream features supported by libzfs_core.  The
+ * default values produce the most conservative stream.
+ */
+struct SendOptions {
+    bool embedded_data = false; ///< Permit embedded-data records in the stream.
+    bool large_blocks = false;  ///< Permit blocks larger than 128 KiB.
+    bool compressed = false;    ///< Preserve compressed blocks in the stream.
+    bool raw = false;           ///< Produce a raw encrypted send stream.
+};
+
+/**
  * Exception raised by the C++ ZFS wrapper.
  *
  * Error wraps failures reported by libzfs as well as errors detected by the
@@ -648,6 +661,39 @@ public:
     Snapshot create_snapshot(
         const std::string& snapshot_name,
         const PropertyValues& properties = {}) const override;
+
+    /**
+     * Write a full ZFS send stream for this snapshot.
+     *
+     * This call is synchronous and does not return until libzfs_core has
+     * finished writing the stream or an error occurs.  The caller retains
+     * ownership of the file descriptor; this method never closes it.
+     *
+     * @param fd Open file descriptor to which the stream is written.
+     * @param options Stream-format options.
+     * @return Nothing.
+     * @throws zfs::Error with Error::Code::invalid_argument if fd is negative.
+     * @throws zfs::Error if OpenZFS cannot generate or write the send stream.
+     */
+    void send(int fd, const SendOptions& options = {}) const;
+
+    /**
+     * Write an incremental ZFS send stream ending at this snapshot.
+     *
+     * The starting snapshot must be a valid incremental ancestor of this
+     * snapshot as required by OpenZFS.  Validation of the relationship is
+     * performed by libzfs_core.  The caller retains ownership of fd.
+     *
+     * @param fd Open file descriptor to which the stream is written.
+     * @param from Earlier snapshot used as the incremental starting point.
+     * @param options Stream-format options.
+     * @return Nothing.
+     * @throws zfs::Error with Error::Code::invalid_argument if fd is negative.
+     * @throws zfs::Error if the snapshots do not form a valid incremental
+     *         relationship or OpenZFS cannot generate or write the stream.
+     */
+    void send(int fd, const Snapshot& from,
+        const SendOptions& options = {}) const;
 
 private:
     friend class Dataset;

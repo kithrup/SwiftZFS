@@ -35,39 +35,35 @@ AC_ARG_WITH(
 
 
 SWIFTZFS_ZFS_OVERRIDE=${SWIFTZFS_ZFS_OVERRIDE:-no}
+SWIFTZFS_FREEBSD_BASE_SOURCE=no
 ZFS_PROVIDER="unknown"
 
-# On FreeBSD, OpenZFS is normally supplied by the base system.  When the
-# caller has not requested an alternate source/build/install tree, verify that
-# the base headers and shared libraries work with no additional -I or -L
-# options.  This is deliberately a compile-and-link test rather than a simple
-# header existence check.
+# FreeBSD installs the OpenZFS shared libraries in the base system, but the
+# installed public headers do not by themselves provide all of the
+# Solaris/illumos compatibility typedefs required when included from C++.
+# FreeBSD's own OpenZFS build supplies those definitions by force-including
+# the FreeBSD SPL compatibility header and adding the OpenZFS source include
+# directories.  Mirror that arrangement here while continuing to link the
+# installed base-system libraries.
 case "$host_os" in
     freebsd*)
         if test "x$SWIFTZFS_ZFS_OVERRIDE" = "xno"; then
-            AC_MSG_CHECKING([for FreeBSD base-system OpenZFS])
-            swiftzfs_save_LIBS="$LIBS"
-            LIBS="-lzfs -lnvpair $LIBS"
-            AC_LANG_PUSH([C++])
-            AC_LINK_IFELSE(
-                [AC_LANG_PROGRAM(
-                    [[#include <libzfs.h>]],
-                    [[
-                        libzfs_handle_t *hdl = libzfs_init();
-                        if (hdl != nullptr)
-                            libzfs_fini(hdl);
-                    ]])],
-                [swiftzfs_have_freebsd_base_zfs=yes],
-                [swiftzfs_have_freebsd_base_zfs=no])
-            AC_LANG_POP([C++])
-            LIBS="$swiftzfs_save_LIBS"
+            swiftzfs_freebsd_openzfs=/usr/src/sys/contrib/openzfs
+            AC_MSG_CHECKING([for FreeBSD OpenZFS sources in $swiftzfs_freebsd_openzfs])
 
-            if test "x$swiftzfs_have_freebsd_base_zfs" = "xyes"; then
+            if test -f "$swiftzfs_freebsd_openzfs/include/libzfs.h" && \
+               test -f "$swiftzfs_freebsd_openzfs/include/libzfs_core.h" && \
+               test -f "$swiftzfs_freebsd_openzfs/include/os/freebsd/spl/sys/ccompile.h" && \
+               test -d "$swiftzfs_freebsd_openzfs/lib/libspl/include" && \
+               test -d "$swiftzfs_freebsd_openzfs/lib/libspl/include/os/freebsd"; then
                 AC_MSG_RESULT([yes])
-                ZFS_PROVIDER="FreeBSD base system"
+                ZFS_SOURCE_DIR="$swiftzfs_freebsd_openzfs"
+                ZFS_INCLUDEDIR="$swiftzfs_freebsd_openzfs/include"
+                SWIFTZFS_FREEBSD_BASE_SOURCE=yes
+                ZFS_PROVIDER="FreeBSD base system with /usr/src OpenZFS headers"
             else
                 AC_MSG_RESULT([no])
-                AC_MSG_ERROR([FreeBSD base-system OpenZFS could not be compiled and linked. See config.log, or select an alternate OpenZFS tree with --with-zfs-source/--with-zfs-build/--with-zfs-libdir.])
+                AC_MSG_ERROR([FreeBSD OpenZFS source headers were not found under /usr/src/sys/contrib/openzfs. Install the FreeBSD src component, or select an alternate OpenZFS tree with --with-zfs-source/--with-zfs-build/--with-zfs-libdir.])
             fi
         fi
         ;;
@@ -98,7 +94,8 @@ if test -z "$ZFS_SOURCE_DIR" && test -n "$ZFS_INCLUDEDIR"; then
     fi
 fi
 
-if test -n "$ZFS_SOURCE_DIR" && test -z "$ZFS_BUILD_DIR"; then
+if test -n "$ZFS_SOURCE_DIR" && test -z "$ZFS_BUILD_DIR" && \
+   test "x$SWIFTZFS_FREEBSD_BASE_SOURCE" != "xyes"; then
     if test -f "$ZFS_SOURCE_DIR/zfs_config.h"; then
         ZFS_BUILD_DIR="$ZFS_SOURCE_DIR"
     fi
@@ -116,7 +113,9 @@ if test -z "$ZFS_LIBDIR" && test -n "$ZFS_BUILD_DIR" && \
     ZFS_LIBDIR="$ZFS_BUILD_DIR/.libs"
 fi
 
-if test -n "$ZFS_SOURCE_DIR"; then
+if test "x$SWIFTZFS_FREEBSD_BASE_SOURCE" = "xyes"; then
+    : # Provider was selected by the FreeBSD auto-detection block above.
+elif test -n "$ZFS_SOURCE_DIR"; then
     ZFS_PROVIDER="OpenZFS source/build tree"
 elif test "x$SWIFTZFS_ZFS_OVERRIDE" = "xyes"; then
     ZFS_PROVIDER="custom OpenZFS installation"
@@ -127,7 +126,18 @@ fi
 ZFS_CPPFLAGS=""
 SWIFT_LINKER_FLAGS=""
 
-if test -n "$ZFS_SOURCE_DIR"; then
+if test "x$SWIFTZFS_FREEBSD_BASE_SOURCE" = "xyes"; then
+    # Match the important userland include settings from OpenZFS Rules.am.
+    # No zfs_config.h is required here: we are consuming the FreeBSD vendor
+    # source headers but linking the already-built FreeBSD base libraries.
+    ZFS_CPPFLAGS="$ZFS_CPPFLAGS -include $ZFS_SOURCE_DIR/include/os/freebsd/spl/sys/ccompile.h"
+    ZFS_CPPFLAGS="$ZFS_CPPFLAGS -I$ZFS_SOURCE_DIR/include"
+    ZFS_CPPFLAGS="$ZFS_CPPFLAGS -I$ZFS_SOURCE_DIR/module/icp/include"
+    ZFS_CPPFLAGS="$ZFS_CPPFLAGS -I$ZFS_SOURCE_DIR/lib/libspl/include"
+    ZFS_CPPFLAGS="$ZFS_CPPFLAGS -I$ZFS_SOURCE_DIR/lib/libspl/include/os/freebsd"
+    ZFS_CPPFLAGS="$ZFS_CPPFLAGS -I$ZFS_SOURCE_DIR/lib/libzpool/include"
+    ZFS_CPPFLAGS="$ZFS_CPPFLAGS -D_GNU_SOURCE -D_REENTRANT -D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE"
+elif test -n "$ZFS_SOURCE_DIR"; then
     if test -z "$ZFS_BUILD_DIR"; then
         AC_MSG_ERROR([OpenZFS source tree detected at $ZFS_SOURCE_DIR, but zfs_config.h was not found. Run OpenZFS ./configure first, or specify --with-zfs-build=DIR for an out-of-tree build.])
     fi
@@ -172,18 +182,39 @@ swiftzfs_save_CPPFLAGS="$CPPFLAGS"
 CPPFLAGS="$CPPFLAGS $ZFS_CPPFLAGS"
 
 AC_LANG_PUSH([C++])
-AC_CHECK_HEADERS(
-    [libzfs.h libzfs_core.h],
+AC_CHECK_HEADER(
+    [libzfs.h],
     [],
-    [AC_MSG_ERROR([required OpenZFS header could not be compiled. See config.log; for a source checkout, point --with-zfs-includedir at its include directory after OpenZFS has been configured.])])
+    [AC_MSG_ERROR([required libzfs.h could not be compiled. See config.log; for a source checkout, point --with-zfs-includedir at its include directory after OpenZFS has been configured.])],
+    [[
+        #include <stdarg.h>
+        #ifdef __FreeBSD__
+        #include <sys/param.h>
+        #include <sys/types.h>
+        #else
+        #include <sys/types.h>
+        #endif
+    ]])
+AC_CHECK_HEADER(
+    [libzfs_core.h],
+    [],
+    [AC_MSG_ERROR([required libzfs_core.h could not be compiled. See config.log; snapshot send support requires libzfs_core.])],
+    [[
+        #include <stdarg.h>
+        #ifdef __FreeBSD__
+        #include <sys/param.h>
+        #include <sys/types.h>
+        #else
+        #include <sys/types.h>
+        #endif
+    ]])
 AC_LANG_POP([C++])
 
 # Restore the caller's CPPFLAGS.  The OpenZFS-specific flags are exported to Package.swift for the CZFS C++ target only.
 CPPFLAGS="$swiftzfs_save_CPPFLAGS"
 
-# The skeleton currently calls only libzfs.  Probe libzfs as required; probe
-# libzfs_core and libzpool as future capabilities without making this first
-# pool-listing smoke test depend on their link closure.
+# libzfs and libnvpair are required by the object model.  Snapshot send support
+# uses libzfs_core directly, so it is also a required link dependency.
 AC_CHECK_LIB(
     [zfs],
     [libzfs_init],
@@ -197,15 +228,21 @@ AC_CHECK_LIB(
     [AC_MSG_ERROR([libnvpair not found or not linkable; it is required for vdev configuration parsing])])
 
 swiftzfs_save_LIBS="$LIBS"
-AC_CHECK_LIB([zfs_core], [lzc_exists], [HAVE_LIBZFS_CORE=yes], [HAVE_LIBZFS_CORE=no])
+AC_CHECK_LIB(
+    [zfs_core],
+    [libzfs_core_init],
+    [HAVE_LIBZFS_CORE=yes],
+    [AC_MSG_ERROR([libzfs_core not found or not linkable; snapshot send support requires it])])
+AC_CHECK_LIB(
+    [zfs_core],
+    [lzc_send],
+    [],
+    [AC_MSG_ERROR([libzfs_core does not provide lzc_send; snapshot send support requires it])])
 LIBS="$swiftzfs_save_LIBS"
 
 AC_CHECK_LIB([zpool], [libzpool_init], [HAVE_LIBZPOOL=yes], [HAVE_LIBZPOOL=no])
 LIBS="$swiftzfs_save_LIBS"
 
-AS_IF([test "x$HAVE_LIBZFS_CORE" != "xyes"], [
-    AC_MSG_WARN([libzfs_core probe failed; the current skeleton does not use it yet])
-])
 AS_IF([test "x$HAVE_LIBZPOOL" != "xyes"], [
     AC_MSG_WARN([libzpool probe failed; the current skeleton does not use it yet])
 ])
@@ -225,7 +262,7 @@ AC_MSG_NOTICE([SwiftZFS configuration:])
 AC_MSG_NOTICE([  host:               $host])
 AC_MSG_NOTICE([  ZFS provider:        $ZFS_PROVIDER])
 AC_MSG_NOTICE([  ZFS source dir:     ${ZFS_SOURCE_DIR:-not a source-tree build}])
-AC_MSG_NOTICE([  ZFS build dir:      ${ZFS_BUILD_DIR:-not a source-tree build}])
+AC_MSG_NOTICE([  ZFS build dir:      ${ZFS_BUILD_DIR:-not required}])
 AC_MSG_NOTICE([  ZFS include dir:    ${ZFS_INCLUDEDIR:-system default}])
 AC_MSG_NOTICE([  ZFS library dir:    ${ZFS_LIBDIR:-system default}])
 AC_MSG_NOTICE([  libnvpair:          $HAVE_LIBNVPAIR])

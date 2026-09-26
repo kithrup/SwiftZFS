@@ -11,24 +11,25 @@ namespace zfs {
 	namespace detail {
 
 		/**
-		 * Shared owner of the process-wide libzfs context used by wrapper objects.
+		 * Shared owner of the libzfs and libzfs_core state used by wrapper objects.
 		 *
 		 * Pool and Dataset implementation objects retain a shared Context so the
-		 * underlying libzfs_handle_t remains valid even after the public ZFS object
-		 * that originally created them has been destroyed.
+		 * underlying libzfs_handle_t and reference-counted libzfs_core state remain
+		 * valid even after the public ZFS object that originally created them has
+		 * been destroyed.
 		 */
 		class Context {
 			public:
 				/**
-				 * Initialize libzfs and enable the libzfs mount-table cache.
+				 * Initialize libzfs and libzfs_core and enable the mount-table cache.
 				 *
 				 * @throws zfs::Error with Error::Code::initialization_failed if
-				 *         libzfs_init() fails.
+				 *         libzfs_init() or libzfs_core_init() fails.
 				 */
 				Context();
 
 				/**
-				 * Finalize the owned libzfs context.
+				 * Finalize the owned libzfs and libzfs_core state.
 				 * @throws Nothing.
 				 */
 				~Context();
@@ -52,6 +53,7 @@ namespace zfs {
 
 			private:
 				libzfs_handle_t* handle_ = nullptr;
+				bool core_initialized_ = false;
 		};
 
 		/**

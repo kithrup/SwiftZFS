@@ -1,8 +1,10 @@
 #include "internal/ZFSInternal.hpp"
 
 #include <libnvpair.h>
+#include <libzfs_core.h>
 #include <zfs_prop.h>
 
+#include <cerrno>
 #include <cstring>
 #include <exception>
 #include <functional>
@@ -48,6 +50,59 @@ namespace zfs {
 		}
 
 	namespace {
+
+		Error::Code
+			error_code_from_errno(int error) noexcept
+			{
+				switch (error) {
+					case EACCES:
+					case EPERM:
+						return Error::Code::permission_denied;
+					case ENOENT:
+						return Error::Code::not_found;
+					case EEXIST:
+						return Error::Code::already_exists;
+					case EIO:
+					case EPIPE:
+						return Error::Code::io_error;
+					case ENOMEM:
+						return Error::Code::no_memory;
+					case ENOTSUP:
+						return Error::Code::unsupported;
+					case EINVAL:
+					case EBADF:
+					case EXDEV:
+						return Error::Code::invalid_argument;
+					default:
+						return Error::Code::unknown;
+				}
+			}
+
+		[[noreturn]] void
+			throw_lzc_error(int error, const char* operation)
+			{
+				std::string message(operation != nullptr ? operation : "libzfs_core operation");
+				if (error != 0) {
+					message += ": ";
+					message += std::strerror(error);
+				}
+				throw Error(error_code_from_errno(error), error, message);
+			}
+
+		enum lzc_send_flags
+			send_flags(const SendOptions& options) noexcept
+			{
+				unsigned int flags = 0;
+				if (options.embedded_data)
+					flags |= LZC_SEND_FLAG_EMBED_DATA;
+				if (options.large_blocks)
+					flags |= LZC_SEND_FLAG_LARGE_BLOCK;
+				if (options.compressed)
+					flags |= LZC_SEND_FLAG_COMPRESS;
+				if (options.raw)
+					flags |= LZC_SEND_FLAG_RAW;
+				return static_cast<enum lzc_send_flags>(flags);
+			}
 
 		PropertySource
 			property_source(zprop_source_t source) noexcept
@@ -439,6 +494,34 @@ namespace zfs {
 		{
 			throw Error(Error::Code::invalid_argument, 0,
 					"cannot create a snapshot of a snapshot");
+		}
+
+	void
+		Snapshot::send(int fd, const SendOptions& options) const
+		{
+			if (fd < 0)
+				throw Error(Error::Code::invalid_argument, EBADF,
+						"send output file descriptor is invalid");
+
+			const int error = lzc_send(name().c_str(), nullptr, fd,
+					send_flags(options));
+			if (error != 0)
+				throw_lzc_error(error, "lzc_send()");
+		}
+
+	void
+		Snapshot::send(int fd, const Snapshot& from,
+				const SendOptions& options) const
+		{
+			if (fd < 0)
+				throw Error(Error::Code::invalid_argument, EBADF,
+						"send output file descriptor is invalid");
+
+			const std::string from_name = from.name();
+			const int error = lzc_send(name().c_str(), from_name.c_str(), fd,
+					send_flags(options));
+			if (error != 0)
+				throw_lzc_error(error, "lzc_send() incremental");
 		}
 
 	const std::vector<Filesystem>&
