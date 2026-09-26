@@ -36,7 +36,7 @@ $(CPP_BUILD_DIR)/%.o: Sources/ZFSCPP/%.cpp Sources/ZFSCPP/include/ZFS.hpp Source
 	$(CXX) $(CXXFLAGS_LOCAL) $(SWIFTZFS_CXXFLAGS) $(CPPFLAGS_LOCAL) -c $< -o $@
 
 $(CPP_LIST_POOLS): Tests/cpp/list-pools.cpp $(CPP_LIBRARY_OBJS) Sources/ZFSCPP/include/ZFS.hpp | $(CPP_BUILD_DIR)
-	$(CXX) $(CXXFLAGS_LOCAL) $(SWIFTZFS_CXXFLAGS) $(CPPFLAGS_LOCAL) Tests/cpp/list-pools.cpp $(CPP_LIBRARY_OBJS) -lzfs -lzfs_core -lnvpair $(SWIFTZFS_LINKER_FLAGS) -o $@
+	$(CXX) $(CXXFLAGS_LOCAL) $(SWIFTZFS_CXXFLAGS) $(CPPFLAGS_LOCAL) Tests/cpp/list-pools.cpp $(CPP_LIBRARY_OBJS) -lzfs -lzfs_core -lnvpair -pthread $(SWIFTZFS_LINKER_FLAGS) -o $@
 
 cpp-build: $(CPP_LIST_POOLS)
 
@@ -53,7 +53,7 @@ $(C_SHIM_TEST_OBJ): Tests/c/c-shim.c Sources/CZFS/include/SwiftZFS.h | $(CPP_BUI
 	$(CC) -std=c11 -Wall -Wextra -Werror -ISources/CZFS/include -c Tests/c/c-shim.c -o $@
 
 $(C_SHIM_TEST): $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) | $(CPP_BUILD_DIR)
-	$(CXX) $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) -lzfs -lzfs_core -lnvpair $(SWIFTZFS_LINKER_FLAGS) -o $@
+	$(CXX) $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) -lzfs -lzfs_core -lnvpair -pthread $(SWIFTZFS_LINKER_FLAGS) -o $@
 
 c-shim-build: $(C_SHIM_TEST)
 

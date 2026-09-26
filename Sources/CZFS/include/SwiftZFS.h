@@ -25,6 +25,7 @@ extern "C" {
 	typedef struct swiftzfs_dataset_list swiftzfs_dataset_list_t;
 	typedef struct swiftzfs_property swiftzfs_property_t;
 	typedef struct swiftzfs_property_list swiftzfs_property_list_t;
+	typedef struct swiftzfs_send_stream swiftzfs_send_stream_t;
 	typedef struct swiftzfs_error swiftzfs_error_t;
 
 	typedef enum swiftzfs_status {
@@ -229,7 +230,32 @@ extern "C" {
 			swiftzfs_dataset_t **result,
 			swiftzfs_error_t **error);
 
-	/* Snapshot send streams.  The C shim never closes fd. */
+	/*
+	 * Pull-based snapshot send streams.  A stream owns an internal producer and
+	 * is consumed by repeatedly calling swiftzfs_send_stream_read() until it
+	 * reports zero bytes.  Destroying a partially consumed stream may block while
+	 * the remaining producer output is drained.
+	 */
+	swiftzfs_status_t swiftzfs_snapshot_send_stream(
+			const swiftzfs_dataset_t *snapshot,
+			const swiftzfs_send_options_t *options,
+			swiftzfs_send_stream_t **result,
+			swiftzfs_error_t **error);
+	swiftzfs_status_t swiftzfs_snapshot_send_stream_incremental(
+			const swiftzfs_dataset_t *snapshot,
+			const swiftzfs_dataset_t *from_snapshot,
+			const swiftzfs_send_options_t *options,
+			swiftzfs_send_stream_t **result,
+			swiftzfs_error_t **error);
+	void swiftzfs_send_stream_destroy(swiftzfs_send_stream_t *stream);
+	swiftzfs_status_t swiftzfs_send_stream_read(
+			swiftzfs_send_stream_t *stream,
+			void *buffer,
+			size_t capacity,
+			size_t *bytes_read,
+			swiftzfs_error_t **error);
+
+	/* Direct-to-fd send path.  The C shim never closes fd. */
 	swiftzfs_status_t swiftzfs_snapshot_send(
 			const swiftzfs_dataset_t *snapshot,
 			int fd,

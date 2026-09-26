@@ -2,9 +2,12 @@
 
 #include "Property.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <map>
 #include <memory>
+#include <vector>
 #include <string>
 #include <vector>
 
@@ -33,6 +36,7 @@ namespace zfs {
 	};
 
 	class Snapshot;
+	class SendStream;
 
 	/**
 	 * Common base class for ZFS filesystems, volumes, and snapshots.
@@ -178,6 +182,7 @@ namespace zfs {
 
 		protected:
 			friend class Pool;
+			friend class SendStream;
 
 			class Impl;
 			explicit Dataset(std::shared_ptr<Impl> impl) noexcept;
@@ -291,6 +296,100 @@ namespace zfs {
 	};
 
 	/**
+	 * Pull-based view of a ZFS send stream.
+	 *
+	 * A SendStream starts a background producer that asks libzfs_core to write
+	 * the stream into an internal pipe.  Consumers may either iterate over the
+	 * stream in fixed-size byte chunks or call read() directly.  The object is
+	 * move-only and supports a single consumer.
+	 *
+	 * If iteration is abandoned before end-of-stream, final destruction drains
+	 * the remaining producer output before joining the producer thread.  This
+	 * avoids terminating the process with SIGPIPE, but means destruction can
+	 * block until OpenZFS finishes producing the stream.
+	 */
+	class SendStream {
+		public:
+			using Chunk = std::vector<std::byte>;
+
+			/** Input iterator yielding successive send-stream chunks. */
+			class Iterator {
+				public:
+					using iterator_category = std::input_iterator_tag;
+					using value_type = Chunk;
+					using difference_type = std::ptrdiff_t;
+					using pointer = const Chunk*;
+					using reference = const Chunk&;
+
+					/** Construct an end iterator. @throws Nothing. */
+					Iterator() noexcept = default;
+
+					/** Return the current chunk. @return Current chunk. */
+					reference operator*() const noexcept;
+
+					/** Return a pointer to the current chunk. @return Current chunk pointer. */
+					pointer operator->() const noexcept;
+
+					/**
+					 * Advance to the next chunk.
+					 * @return Reference to this iterator.
+					 * @throws zfs::Error if stream production or reading fails.
+					 */
+					Iterator& operator++();
+
+					/** Post-increment. @throws zfs::Error if advancing fails. */
+					Iterator operator++(int);
+
+					friend bool operator==(const Iterator& lhs,
+							const Iterator& rhs) noexcept;
+					friend bool operator!=(const Iterator& lhs,
+							const Iterator& rhs) noexcept;
+
+				private:
+					friend class SendStream;
+					class State;
+					explicit Iterator(std::shared_ptr<State> state);
+					void read_next();
+
+					std::shared_ptr<State> state_;
+					Chunk chunk_;
+					bool done_ = true;
+			};
+
+			SendStream(SendStream&& other) noexcept = default;
+			SendStream& operator=(SendStream&& other) noexcept = default;
+			SendStream(const SendStream&) = delete;
+			SendStream& operator=(const SendStream&) = delete;
+			~SendStream() = default;
+
+			/**
+			 * Read raw stream bytes into a caller-provided buffer.
+			 *
+			 * @param buffer Destination buffer.  May be nullptr only when capacity is 0.
+			 * @param capacity Maximum number of bytes to read.
+			 * @return Number of bytes read, or 0 at end-of-stream.
+			 * @throws zfs::Error if stream production or reading fails.
+			 */
+			std::size_t read(void* buffer, std::size_t capacity);
+
+			/** @return Iterator positioned at the first stream chunk. */
+			Iterator begin();
+
+			/** @return End iterator. @throws Nothing. */
+			Iterator end() noexcept;
+
+		private:
+			friend class Snapshot;
+			using State = Iterator::State;
+			SendStream(std::string target, std::string from,
+					const SendOptions& options,
+					std::shared_ptr<void> target_lifetime,
+					std::shared_ptr<void> from_lifetime = {});
+
+			std::shared_ptr<State> state_;
+	};
+
+	/**
 	 * A read-only ZFS snapshot dataset.
 	 *
 	 * Snapshot inherits the common Dataset query interface.  It is immutable as a
@@ -346,36 +445,41 @@ namespace zfs {
 					const PropertyValues& properties = {}) const override;
 
 			/**
-			 * Write a full ZFS send stream for this snapshot.
+			 * Create an iterable full ZFS send stream for this snapshot.
 			 *
-			 * This call is synchronous and does not return until libzfs_core has
-			 * finished writing the stream or an error occurs.  The caller retains
-			 * ownership of the file descriptor; this method never closes it.
-			 *
-			 * @param fd Open file descriptor to which the stream is written.
 			 * @param options Stream-format options.
-			 * @return Nothing.
-			 * @throws zfs::Error with Error::Code::invalid_argument if fd is negative.
-			 * @throws zfs::Error if OpenZFS cannot generate or write the send stream.
+			 * @return Move-only stream whose iterator yields byte chunks.
+			 * @throws zfs::Error if the stream transport cannot be created.
 			 */
-			void send(int fd, const SendOptions& options = {}) const;
+			SendStream send(const SendOptions& options = {}) const;
 
 			/**
-			 * Write an incremental ZFS send stream ending at this snapshot.
+			 * Create an iterable incremental send stream ending at this snapshot.
 			 *
-			 * The starting snapshot must be a valid incremental ancestor of this
-			 * snapshot as required by OpenZFS.  Validation of the relationship is
-			 * performed by libzfs_core.  The caller retains ownership of fd.
-			 *
-			 * @param fd Open file descriptor to which the stream is written.
 			 * @param from Earlier snapshot used as the incremental starting point.
 			 * @param options Stream-format options.
-			 * @return Nothing.
-			 * @throws zfs::Error with Error::Code::invalid_argument if fd is negative.
-			 * @throws zfs::Error if the snapshots do not form a valid incremental
-			 *         relationship or OpenZFS cannot generate or write the stream.
+			 * @return Move-only stream whose iterator yields byte chunks.
+			 * @throws zfs::Error if the stream transport cannot be created.
 			 */
-			void send(int fd, const Snapshot& from,
+			SendStream send(const Snapshot& from,
+					const SendOptions& options = {}) const;
+
+			/**
+			 * Write a full send stream directly to a caller-owned file descriptor.
+			 * @param fd Output file descriptor, which is never closed by this method.
+			 * @param options Stream-format options.
+			 * @throws zfs::Error if fd is invalid or OpenZFS send fails.
+			 */
+			void send_to(int fd, const SendOptions& options = {}) const;
+
+			/**
+			 * Write an incremental send stream directly to a file descriptor.
+			 * @param fd Output file descriptor, which is never closed by this method.
+			 * @param from Earlier snapshot used as the incremental starting point.
+			 * @param options Stream-format options.
+			 * @throws zfs::Error if fd is invalid or OpenZFS send fails.
+			 */
+			void send_to(int fd, const Snapshot& from,
 					const SendOptions& options = {}) const;
 
 		private:

@@ -61,6 +61,15 @@ struct swiftzfs_property_list {
 	std::vector<zfs::Property> properties;
 };
 
+struct swiftzfs_send_stream {
+	explicit swiftzfs_send_stream(zfs::SendStream stream)
+		: impl(std::move(stream))
+	{
+	}
+
+	zfs::SendStream impl;
+};
+
 namespace {
 
 	swiftzfs_error_code_t
@@ -818,6 +827,77 @@ swiftzfs_dataset_create_snapshot(const swiftzfs_dataset_t *dataset,
 }
 
 	extern "C" swiftzfs_status_t
+swiftzfs_snapshot_send_stream(const swiftzfs_dataset_t *snapshot,
+		const swiftzfs_send_options_t *options, swiftzfs_send_stream_t **result,
+		swiftzfs_error_t **error)
+{
+	clear_error(error);
+	auto *value = as_snapshot(snapshot);
+	if (value == nullptr || result == nullptr) {
+		return invalid_argument(error,
+				"snapshot and result must not be null");
+	}
+	*result = nullptr;
+
+	try {
+		*result = new swiftzfs_send_stream(value->send(send_options(options)));
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
+swiftzfs_snapshot_send_stream_incremental(const swiftzfs_dataset_t *snapshot,
+		const swiftzfs_dataset_t *from_snapshot,
+		const swiftzfs_send_options_t *options, swiftzfs_send_stream_t **result,
+		swiftzfs_error_t **error)
+{
+	clear_error(error);
+	auto *value = as_snapshot(snapshot);
+	auto *from = as_snapshot(from_snapshot);
+	if (value == nullptr || from == nullptr || result == nullptr) {
+		return invalid_argument(error,
+				"target, starting snapshot, and result must not be null");
+	}
+	*result = nullptr;
+
+	try {
+		*result = new swiftzfs_send_stream(
+				value->send(*from, send_options(options)));
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" void
+swiftzfs_send_stream_destroy(swiftzfs_send_stream_t *stream)
+{
+	delete stream;
+}
+
+	extern "C" swiftzfs_status_t
+swiftzfs_send_stream_read(swiftzfs_send_stream_t *stream, void *buffer,
+		size_t capacity, size_t *bytes_read, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (stream == nullptr || bytes_read == nullptr ||
+			(buffer == nullptr && capacity != 0)) {
+		return invalid_argument(error,
+				"stream, bytes_read, and non-empty buffer must not be null");
+	}
+	*bytes_read = 0;
+
+	try {
+		*bytes_read = stream->impl.read(buffer, capacity);
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
 swiftzfs_snapshot_send(const swiftzfs_dataset_t *snapshot, int fd,
 		const swiftzfs_send_options_t *options, swiftzfs_error_t **error)
 {
@@ -828,7 +908,7 @@ swiftzfs_snapshot_send(const swiftzfs_dataset_t *snapshot, int fd,
 	}
 
 	try {
-		value->send(fd, send_options(options));
+		value->send_to(fd, send_options(options));
 		return SWIFTZFS_OK;
 	} catch (...) {
 		return translate_current_exception(error);
@@ -849,7 +929,7 @@ swiftzfs_snapshot_send_incremental(const swiftzfs_dataset_t *snapshot,
 	}
 
 	try {
-		value->send(fd, *from, send_options(options));
+		value->send_to(fd, *from, send_options(options));
 		return SWIFTZFS_OK;
 	} catch (...) {
 		return translate_current_exception(error);

@@ -8,7 +8,10 @@
 #include <cstring>
 #include <exception>
 #include <functional>
+#include <thread>
 #include <utility>
+
+#include <unistd.h>
 
 namespace zfs {
 
@@ -197,6 +200,220 @@ namespace zfs {
 		};
 
 	} // namespace
+
+
+	class SendStream::Iterator::State {
+		public:
+			State(std::string target, std::string from, const SendOptions& options,
+					std::shared_ptr<void> target_lifetime,
+					std::shared_ptr<void> from_lifetime)
+				: target_(std::move(target)), from_(std::move(from)),
+				options_(options), target_lifetime_(std::move(target_lifetime)),
+				from_lifetime_(std::move(from_lifetime))
+		{
+			int fds[2];
+			if (::pipe(fds) != 0) {
+				const int error = errno;
+				throw Error(error_code_from_errno(error), error,
+						std::string("pipe() for ZFS send failed: ") +
+						std::strerror(error));
+			}
+
+			read_fd_ = fds[0];
+			write_fd_ = fds[1];
+
+			try {
+				worker_ = std::thread([this] {
+						const char* from = from_.empty() ? nullptr : from_.c_str();
+						send_error_ = lzc_send(target_.c_str(), from, write_fd_,
+								send_flags(options_));
+						::close(write_fd_);
+						write_fd_ = -1;
+						});
+			} catch (...) {
+				::close(read_fd_);
+				::close(write_fd_);
+				read_fd_ = -1;
+				write_fd_ = -1;
+				throw;
+			}
+		}
+
+			~State()
+			{
+				drain_and_finish_noexcept();
+			}
+
+			State(const State&) = delete;
+			State& operator=(const State&) = delete;
+
+			std::size_t read(void* buffer, std::size_t capacity)
+			{
+				if (capacity == 0)
+					return 0;
+				if (buffer == nullptr)
+					throw Error(Error::Code::invalid_argument, EINVAL,
+							"send stream read buffer is null");
+				if (read_fd_ < 0)
+					return finish();
+
+				ssize_t count;
+				do {
+					count = ::read(read_fd_, buffer, capacity);
+				} while (count < 0 && errno == EINTR);
+
+				if (count > 0)
+					return static_cast<std::size_t>(count);
+
+				if (count < 0) {
+					const int error = errno;
+					throw Error(error_code_from_errno(error), error,
+							std::string("read() from ZFS send stream failed: ") +
+							std::strerror(error));
+				}
+
+				::close(read_fd_);
+				read_fd_ = -1;
+				return finish();
+			}
+
+		private:
+			std::size_t finish()
+			{
+				if (worker_.joinable())
+					worker_.join();
+				if (send_error_ != 0)
+					throw_lzc_error(send_error_, from_.empty()
+							? "lzc_send()"
+							: "lzc_send() incremental");
+				return 0;
+			}
+
+			void drain_and_finish_noexcept() noexcept
+			{
+				if (read_fd_ >= 0) {
+					unsigned char buffer[64 * 1024];
+					for (;;) {
+						ssize_t count;
+						do {
+							count = ::read(read_fd_, buffer, sizeof(buffer));
+						} while (count < 0 && errno == EINTR);
+						if (count <= 0)
+							break;
+					}
+					::close(read_fd_);
+					read_fd_ = -1;
+				}
+				if (worker_.joinable())
+					worker_.join();
+			}
+
+			std::string target_;
+			std::string from_;
+			SendOptions options_;
+			std::shared_ptr<void> target_lifetime_;
+			std::shared_ptr<void> from_lifetime_;
+			int read_fd_ = -1;
+			int write_fd_ = -1;
+			int send_error_ = 0;
+			std::thread worker_;
+	};
+
+	SendStream::SendStream(std::string target, std::string from,
+			const SendOptions& options, std::shared_ptr<void> target_lifetime,
+			std::shared_ptr<void> from_lifetime)
+		: state_(std::make_shared<State>(std::move(target), std::move(from),
+					options, std::move(target_lifetime), std::move(from_lifetime)))
+	{
+	}
+
+	std::size_t
+		SendStream::read(void* buffer, std::size_t capacity)
+		{
+			if (state_ == nullptr)
+				return 0;
+			return state_->read(buffer, capacity);
+		}
+
+	SendStream::Iterator
+		SendStream::begin()
+		{
+			if (state_ == nullptr)
+				return Iterator();
+			return Iterator(state_);
+		}
+
+	SendStream::Iterator
+		SendStream::end() noexcept
+		{
+			return Iterator();
+		}
+
+	SendStream::Iterator::Iterator(std::shared_ptr<State> state)
+		: state_(std::move(state)), done_(false)
+	{
+		read_next();
+	}
+
+	SendStream::Iterator::reference
+		SendStream::Iterator::operator*() const noexcept
+		{
+			return chunk_;
+		}
+
+	SendStream::Iterator::pointer
+		SendStream::Iterator::operator->() const noexcept
+		{
+			return &chunk_;
+		}
+
+	SendStream::Iterator&
+		SendStream::Iterator::operator++()
+		{
+			read_next();
+			return *this;
+		}
+
+	SendStream::Iterator
+		SendStream::Iterator::operator++(int)
+		{
+			Iterator copy = *this;
+			read_next();
+			return copy;
+		}
+
+	void
+		SendStream::Iterator::read_next()
+		{
+			if (done_ || state_ == nullptr)
+				return;
+
+			chunk_.resize(128 * 1024);
+			const std::size_t count = state_->read(chunk_.data(), chunk_.size());
+			if (count == 0) {
+				chunk_.clear();
+				done_ = true;
+				state_.reset();
+				return;
+			}
+			chunk_.resize(count);
+		}
+
+	bool
+		operator==(const SendStream::Iterator& lhs,
+				const SendStream::Iterator& rhs) noexcept
+		{
+			if (lhs.done_ && rhs.done_)
+				return true;
+			return lhs.done_ == rhs.done_ && lhs.state_ == rhs.state_;
+		}
+
+	bool
+		operator!=(const SendStream::Iterator& lhs,
+				const SendStream::Iterator& rhs) noexcept
+		{
+			return !(lhs == rhs);
+		}
 
 	Dataset::Dataset(std::shared_ptr<Impl> impl) noexcept
 		: impl_(std::move(impl))
@@ -496,29 +713,43 @@ namespace zfs {
 					"cannot create a snapshot of a snapshot");
 		}
 
+	SendStream
+		Snapshot::send(const SendOptions& options) const
+		{
+			return SendStream(name(), std::string(), options, impl_);
+		}
+
+	SendStream
+		Snapshot::send(const Snapshot& from, const SendOptions& options) const
+		{
+			return SendStream(name(), from.name(), options, impl_, from.impl_);
+		}
+
 	void
-		Snapshot::send(int fd, const SendOptions& options) const
+		Snapshot::send_to(int fd, const SendOptions& options) const
 		{
 			if (fd < 0)
 				throw Error(Error::Code::invalid_argument, EBADF,
 						"send output file descriptor is invalid");
 
-			const int error = lzc_send(name().c_str(), nullptr, fd,
+			const std::string target_name = name();
+			const int error = lzc_send(target_name.c_str(), nullptr, fd,
 					send_flags(options));
 			if (error != 0)
 				throw_lzc_error(error, "lzc_send()");
 		}
 
 	void
-		Snapshot::send(int fd, const Snapshot& from,
+		Snapshot::send_to(int fd, const Snapshot& from,
 				const SendOptions& options) const
 		{
 			if (fd < 0)
 				throw Error(Error::Code::invalid_argument, EBADF,
 						"send output file descriptor is invalid");
 
+			const std::string target_name = name();
 			const std::string from_name = from.name();
-			const int error = lzc_send(name().c_str(), from_name.c_str(), fd,
+			const int error = lzc_send(target_name.c_str(), from_name.c_str(), fd,
 					send_flags(options));
 			if (error != 0)
 				throw_lzc_error(error, "lzc_send() incremental");

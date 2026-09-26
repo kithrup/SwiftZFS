@@ -38,6 +38,7 @@ let package = Package(
                 .linkedLibrary("zfs"),
                 .linkedLibrary("zfs_core"),
                 .linkedLibrary("nvpair"),
+                .linkedLibrary("pthread"),
                 .unsafeFlags(zfsLinkerFlags),
             ]
         ),
