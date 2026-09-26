@@ -935,3 +935,64 @@ swiftzfs_snapshot_send_incremental(const swiftzfs_dataset_t *snapshot,
 		return translate_current_exception(error);
 	}
 }
+
+
+	extern "C" swiftzfs_status_t
+swiftzfs_pool_children(const swiftzfs_pool_t *pool,
+		swiftzfs_dataset_list_t **result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (pool == nullptr || result == nullptr)
+		return invalid_argument(error, "pool and result must not be null");
+	*result = nullptr;
+
+	try {
+		auto children = pool->impl.children();
+		auto filesystems = std::move(children).filesystems();
+		auto volumes = std::move(children).volumes();
+		auto list = std::make_unique<swiftzfs_dataset_list>();
+		list->datasets.reserve(filesystems.size() + volumes.size());
+		for (auto &filesystem : filesystems) {
+			list->datasets.push_back(std::make_unique<swiftzfs_dataset>(
+					make_dataset(std::move(filesystem))));
+		}
+		for (auto &volume : volumes) {
+			list->datasets.push_back(std::make_unique<swiftzfs_dataset>(
+					make_dataset(std::move(volume))));
+		}
+		*result = list.release();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
+swiftzfs_dataset_children(const swiftzfs_dataset_t *dataset,
+		swiftzfs_dataset_list_t **result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (dataset == nullptr || dataset->impl == nullptr || result == nullptr)
+		return invalid_argument(error, "dataset and result must not be null");
+	*result = nullptr;
+
+	try {
+		auto children = dataset->impl->children();
+		auto filesystems = std::move(children).filesystems();
+		auto volumes = std::move(children).volumes();
+		auto list = std::make_unique<swiftzfs_dataset_list>();
+		list->datasets.reserve(filesystems.size() + volumes.size());
+		for (auto &filesystem : filesystems) {
+			list->datasets.push_back(std::make_unique<swiftzfs_dataset>(
+					make_dataset(std::move(filesystem))));
+		}
+		for (auto &volume : volumes) {
+			list->datasets.push_back(std::make_unique<swiftzfs_dataset>(
+					make_dataset(std::move(volume))));
+		}
+		*result = list.release();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}

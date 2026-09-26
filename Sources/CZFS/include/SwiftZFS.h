@@ -268,6 +268,16 @@ extern "C" {
 			const swiftzfs_send_options_t *options,
 			swiftzfs_error_t **error);
 
+	/* Immediate dataset hierarchy; neither operation recurses. */
+	swiftzfs_status_t swiftzfs_pool_children(
+			const swiftzfs_pool_t *pool,
+			swiftzfs_dataset_list_t **result,
+			swiftzfs_error_t **error);
+	swiftzfs_status_t swiftzfs_dataset_children(
+			const swiftzfs_dataset_t *dataset,
+			swiftzfs_dataset_list_t **result,
+			swiftzfs_error_t **error);
+
 #ifdef __cplusplus
 }
 #endif

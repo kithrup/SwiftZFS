@@ -178,6 +178,19 @@ namespace zfs {
 			DatasetCollection datasets() const;
 
 			/**
+			 * Return datasets immediately below the pool root dataset.
+			 *
+			 * The pool root dataset itself is not included.  This operation is
+			 * deliberately non-recursive.
+			 *
+			 * @return Immediate filesystem and volume children of the pool root.
+			 * @throws zfs::Error if the root dataset cannot be opened or child
+			 *         iteration fails.
+			 * @throws std::bad_alloc if result storage cannot be allocated.
+			 */
+			DatasetCollection children() const;
+
+			/**
 			 * Convenience wrapper returning only filesystem datasets.
 			 *
 			 * @return Filesystems discovered in the pool.

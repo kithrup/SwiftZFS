@@ -89,6 +89,31 @@ public class Dataset {
     )
   }
 
+  /// Datasets immediately below this dataset.
+  ///
+  /// This operation is non-recursive. Use `descendants()` for recursive traversal.
+  public func children() throws -> [Dataset] {
+    var list: OpaquePointer?
+    var error: OpaquePointer?
+    let status = swiftzfs_dataset_children(handle, &list, &error)
+    try checkSwiftZFSStatus(status, operation: "dataset.children", error: error)
+    guard let list else {
+      throw invariantError("dataset.children", "C shim returned no dataset list")
+    }
+    defer { swiftzfs_dataset_list_destroy(list) }
+    return try Dataset.takeAll(from: list)
+  }
+
+  /// All descendants below this dataset, in depth-first pre-order.
+  public func descendants() throws -> [Dataset] {
+    var result: [Dataset] = []
+    for child in try children() {
+      result.append(child)
+      result.append(contentsOf: try child.descendants())
+    }
+    return result
+  }
+
   /// Snapshots belonging to this dataset.
   public func snapshots() throws -> [Snapshot] {
     var list: OpaquePointer?
@@ -113,6 +138,22 @@ public class Dataset {
       result.append(snapshot)
     }
 
+    return result
+  }
+
+  static func takeAll(from list: OpaquePointer) throws -> [Dataset] {
+    let count = swiftzfs_dataset_list_count(list)
+    var result: [Dataset] = []
+    result.reserveCapacity(count)
+
+    for index in 0..<count {
+      guard let handle = swiftzfs_dataset_list_take_at(list, index) else { continue }
+      do {
+        result.append(try Dataset.make(handle: handle))
+      } catch {
+        throw error
+      }
+    }
     return result
   }
 
@@ -187,6 +228,12 @@ public final class Volume: Dataset {
 /// A read-only point-in-time snapshot of a filesystem or volume.
 public final class Snapshot: Dataset {
   public override var isSnapshot: Bool { true }
+
+  /// Snapshots cannot themselves contain child datasets.
+  public override func children() throws -> [Dataset] { [] }
+
+  /// Snapshots cannot themselves contain descendant datasets.
+  public override func descendants() throws -> [Dataset] { [] }
 
   /// Snapshots cannot themselves contain snapshots.
   public override func snapshots() throws -> [Snapshot] { [] }

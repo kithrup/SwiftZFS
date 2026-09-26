@@ -880,4 +880,64 @@ namespace zfs {
 			return std::move(result.volumes_);
 		}
 
+
+	DatasetCollection
+		Dataset::children() const
+		{
+			DatasetCollection result;
+			if (is_volume() || is_snapshot())
+				return result;
+
+			DatasetHandle dataset(impl_->open());
+			std::exception_ptr exception;
+			struct IteratorState {
+				std::shared_ptr<detail::Context> context;
+				DatasetCollection *result;
+				std::exception_ptr *exception;
+			} state { impl_->context(), &result, &exception };
+
+			auto callback = [](zfs_handle_t *handle, void *arg) -> int {
+				auto *state = static_cast<IteratorState *>(arg);
+				try {
+					const zfs_type_t type = zfs_get_type(handle);
+					const char *child_name = zfs_get_name(handle);
+					if (child_name != nullptr &&
+							(type == ZFS_TYPE_FILESYSTEM || type == ZFS_TYPE_VOLUME)) {
+						auto child_impl = std::make_shared<Dataset::Impl>(
+								state->context, child_name, type);
+						if (type == ZFS_TYPE_FILESYSTEM)
+							state->result->filesystems_.push_back(
+									Filesystem(child_impl));
+						else
+							state->result->volumes_.push_back(Volume(child_impl));
+					}
+					zfs_close(handle);
+					return 0;
+				} catch (...) {
+					zfs_close(handle);
+					*state->exception = std::current_exception();
+					return 1;
+				}
+			};
+
+			const int error = zfs_iter_children_v2(
+					dataset.get(), ZFS_ITER_SIMPLE, callback, &state);
+			if (exception != nullptr)
+				std::rethrow_exception(exception);
+			if (error != 0)
+				detail::throw_libzfs_error(*impl_->context(),
+						"zfs_iter_children_v2()");
+			return result;
+		}
+
+	DatasetCollection
+		Pool::children() const
+		{
+			auto context = impl_->context();
+			auto root_impl = std::make_shared<Dataset::Impl>(
+					context, name(), ZFS_TYPE_FILESYSTEM);
+			Filesystem root(std::move(root_impl));
+			return root.children();
+		}
+
 } // namespace zfs

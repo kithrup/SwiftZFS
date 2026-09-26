@@ -51,6 +51,31 @@ public final class Pool {
     return decodeProperties(from: list)
   }
 
+  /// Datasets immediately below the pool root dataset.
+  ///
+  /// The pool root dataset itself is not included. This operation is non-recursive.
+  public func children() throws -> [Dataset] {
+    var list: OpaquePointer?
+    var error: OpaquePointer?
+    let status = swiftzfs_pool_children(handle, &list, &error)
+    try checkSwiftZFSStatus(status, operation: "pool.children", error: error)
+    guard let list else {
+      throw invariantError("pool.children", "C shim returned no dataset list")
+    }
+    defer { swiftzfs_dataset_list_destroy(list) }
+    return try Dataset.takeAll(from: list)
+  }
+
+  /// All descendants below the pool root dataset, in depth-first pre-order.
+  public func descendants() throws -> [Dataset] {
+    var result: [Dataset] = []
+    for child in try children() {
+      result.append(child)
+      result.append(contentsOf: try child.descendants())
+    }
+    return result
+  }
+
   /// Enumerate filesystems and volumes in one traversal of the pool.
   public func datasets() throws -> DatasetCollection {
     var list: OpaquePointer?

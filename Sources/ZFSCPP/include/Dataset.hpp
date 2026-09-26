@@ -36,6 +36,7 @@ namespace zfs {
 	};
 
 	class Snapshot;
+	class DatasetCollection;
 	class SendStream;
 
 	/**
@@ -159,6 +160,20 @@ namespace zfs {
 			virtual std::vector<Snapshot> snapshots() const;
 
 			/**
+			 * Return datasets immediately below this dataset.
+			 *
+			 * This operation is deliberately non-recursive.  Filesystem and volume
+			 * children are returned separately in one DatasetCollection.  Snapshots
+			 * have no children and return an empty collection.
+			 *
+			 * @return Immediate filesystem and volume children.
+			 * @throws zfs::Error if the dataset cannot be opened or child iteration
+			 *         fails.
+			 * @throws std::bad_alloc if result storage cannot be allocated.
+			 */
+			DatasetCollection children() const;
+
+			/**
 			 * Create a snapshot of this dataset.
 			 *
 			 * Snapshot names are relative names such as "before-upgrade"; the wrapper
@@ -238,6 +253,7 @@ namespace zfs {
 
 		private:
 			friend class Pool;
+			friend class Dataset;
 
 			explicit Filesystem(std::shared_ptr<Impl> impl) noexcept;
 	};
@@ -291,6 +307,7 @@ namespace zfs {
 
 		private:
 			friend class Pool;
+			friend class Dataset;
 
 			explicit Volume(std::shared_ptr<Impl> impl) noexcept;
 	};
@@ -557,6 +574,7 @@ namespace zfs {
 
 		private:
 			friend class Pool;
+			friend class Dataset;
 
 			std::vector<Filesystem> filesystems_;
 			std::vector<Volume> volumes_;
