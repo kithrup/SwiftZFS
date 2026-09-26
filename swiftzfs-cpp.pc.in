@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+includedir=@includedir@
+libdir=@libdir@
+
+Name: swiftzfs-cpp
+Description: C++17 interface to OpenZFS
+Version: @PACKAGE_VERSION@
+Cflags: -I${includedir}
+Libs: -L${libdir} -lswiftzfs_cpp -lzfs -lzfs_core -lnvpair -pthread -lm @SWIFT_LINKER_FLAGS@
