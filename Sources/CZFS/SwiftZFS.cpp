@@ -1030,6 +1030,23 @@ swiftzfs_snapshot_send_incremental(const swiftzfs_dataset_t *snapshot,
 
 
 	extern "C" swiftzfs_status_t
+swiftzfs_pool_dataset(const swiftzfs_pool_t *pool, const char *name,
+		swiftzfs_dataset_t **result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (pool == nullptr || name == nullptr || result == nullptr)
+		return invalid_argument(error, "pool, dataset name, and result must not be null");
+	*result = nullptr;
+
+	try {
+		*result = new swiftzfs_dataset(pool->impl.dataset(name));
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
 swiftzfs_pool_children(const swiftzfs_pool_t *pool,
 		swiftzfs_dataset_list_t **result, swiftzfs_error_t **error)
 {

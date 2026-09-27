@@ -41,14 +41,15 @@ final class ZFSTests: XCTestCase {
 
     let poolName = String(datasetName.split(separator: "/", maxSplits: 1)[0])
     let pool = try XCTUnwrap(ZFS().pools().first { $0.name == poolName })
-    let datasets = try pool.datasets()
-    let dataset = try XCTUnwrap(
-      (datasets.filesystems as [Dataset] + datasets.volumes).first { $0.name == datasetName }
-    )
+    let dataset = try pool.dataset(named: datasetName)
 
     let snapshot = try dataset.snapshot(named: snapshotName)
     XCTAssertEqual(snapshot.name, "\(datasetName)@\(snapshotName)")
     XCTAssertTrue(snapshot.isSnapshot)
+
+    let openedSnapshot = try pool.dataset(named: snapshot.name)
+    XCTAssertEqual(openedSnapshot.name, snapshot.name)
+    XCTAssertTrue(openedSnapshot.isSnapshot)
 
     XCTAssertThrowsError(try dataset.snapshot(named: "swiftzfs-missing-\(UUID())")) { error in
       guard let error = error as? ZFSError else {
@@ -70,6 +71,34 @@ final class ZFSTests: XCTestCase {
         XCTFail("Expected .invalidArgument, got \(error.code)")
         return
       }
+    }
+  }
+
+  func testPoolDatasetLookup() throws {
+    let zfs = try ZFS()
+    guard let pool = try zfs.pools().first else {
+      throw XCTSkip("No imported ZFS pool is available")
+    }
+
+    let root = try pool.dataset(named: pool.name)
+    XCTAssertEqual(root.name, pool.name)
+    XCTAssertTrue(root.isFilesystem)
+
+    let child = try pool.children().first
+    if let child {
+      let opened = try pool.dataset(named: child.name)
+      XCTAssertEqual(opened.name, child.name)
+      XCTAssertEqual(opened.guid, child.guid)
+      XCTAssertEqual(opened.isVolume, child.isVolume)
+      XCTAssertEqual(try opened.children().map(\.name), try child.children().map(\.name))
+    }
+
+    XCTAssertThrowsError(try pool.dataset(named: "\(pool.name)/swiftzfs-missing-\(UUID())")) {
+      error in
+      XCTAssertEqual((error as? ZFSError)?.code, .notFound)
+    }
+    XCTAssertThrowsError(try pool.dataset(named: "otherpool/dataset")) { error in
+      XCTAssertEqual((error as? ZFSError)?.code, .invalidArgument)
     }
   }
 

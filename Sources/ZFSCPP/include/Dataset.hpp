@@ -515,6 +515,7 @@ namespace zfs {
 					const SendOptions& options = {}) const;
 
 		private:
+			friend class Pool;
 			friend class Dataset;
 
 			explicit Snapshot(std::shared_ptr<Impl> impl) noexcept;

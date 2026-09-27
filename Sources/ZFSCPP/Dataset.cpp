@@ -925,6 +925,50 @@ namespace zfs {
 			return result;
 		}
 
+	std::unique_ptr<Dataset>
+		Pool::dataset(const std::string& dataset_name) const
+		{
+			const std::string pool_name = name();
+			const bool in_pool = dataset_name == pool_name ||
+					(dataset_name.size() > pool_name.size() &&
+					 dataset_name.compare(0, pool_name.size(), pool_name) == 0 &&
+					 (dataset_name[pool_name.size()] == '/' ||
+					  dataset_name[pool_name.size()] == '@'));
+			if (dataset_name.empty() || dataset_name.find('\0') != std::string::npos ||
+					!in_pool) {
+				throw Error(Error::Code::invalid_argument, 0,
+						"dataset name must belong to pool: " + pool_name);
+			}
+
+			if (dataset_name.find('@') == std::string::npos) {
+				auto all = datasets();
+				for (auto& filesystem : all.filesystems_) {
+					if (filesystem.name() == dataset_name)
+						return std::make_unique<Filesystem>(std::move(filesystem));
+				}
+				for (auto& volume : all.volumes_) {
+					if (volume.name() == dataset_name)
+						return std::make_unique<Volume>(std::move(volume));
+				}
+				throw Error(Error::Code::not_found, 0,
+						"dataset not found: " + dataset_name);
+			}
+
+			auto context = impl_->context();
+			DatasetHandle handle(zfs_open(context->handle(), dataset_name.c_str(),
+					ZFS_TYPE_SNAPSHOT));
+			if (handle.get() == nullptr) {
+				if (libzfs_errno(context->handle()) == EZFS_NOENT)
+					throw Error(Error::Code::not_found, 0,
+							"dataset not found: " + dataset_name);
+				detail::throw_libzfs_error(*context, dataset_name.c_str());
+			}
+
+			auto dataset_impl = std::make_shared<Dataset::Impl>(
+					context, dataset_name, ZFS_TYPE_SNAPSHOT);
+			return std::unique_ptr<Dataset>(new Snapshot(std::move(dataset_impl)));
+		}
+
 	std::vector<Filesystem>
 		Pool::filesystems() const
 		{

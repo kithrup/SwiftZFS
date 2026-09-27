@@ -178,6 +178,24 @@ namespace zfs {
 			DatasetCollection datasets() const;
 
 			/**
+			 * Open a filesystem, volume, or snapshot by its full name in this pool.
+			 *
+			 * The pool root dataset can also be opened by passing the pool name.
+			 * Filesystem and volume lookup builds the hierarchy with one traversal,
+			 * so the returned object retains its immediate children. Snapshot lookup
+			 * opens the named snapshot directly.
+			 *
+			 * @param dataset_name Full dataset name, including the pool name.
+			 * @return A wrapper for the requested dataset.
+			 * @throws zfs::Error with Error::Code::invalid_argument if the name is
+			 *         empty, malformed, or belongs to another pool.
+			 * @throws zfs::Error with Error::Code::not_found if it does not exist.
+			 * @throws zfs::Error if OpenZFS cannot open the dataset.
+			 * @throws std::bad_alloc if result storage cannot be allocated.
+			 */
+			std::unique_ptr<Dataset> dataset(const std::string& dataset_name) const;
+
+			/**
 			 * Return datasets immediately below the pool root dataset.
 			 *
 			 * The pool root dataset itself is not included.  This operation is

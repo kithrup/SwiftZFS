@@ -51,6 +51,33 @@ public final class Pool {
     return decodeProperties(from: list)
   }
 
+  /// Open a filesystem, volume, or snapshot by its full name in this pool.
+  ///
+  /// Pass the pool name to open its root dataset. A missing dataset throws
+  /// `ZFSError` with code `.notFound`; a name outside this pool throws
+  /// `.invalidArgument`. Filesystem and volume lookup builds the pool's
+  /// hierarchy once, so `children()` on the returned dataset remains accurate.
+  public func dataset(named name: String) throws -> Dataset {
+    guard !name.utf8.contains(0) else {
+      throw ZFSError(
+        operation: "pool.dataset(\(name))",
+        code: .invalidArgument,
+        systemError: 0,
+        message: "dataset name must not contain a NUL byte"
+      )
+    }
+    var datasetHandle: OpaquePointer?
+    var error: OpaquePointer?
+    let status = name.withCString {
+      swiftzfs_pool_dataset(handle, $0, &datasetHandle, &error)
+    }
+    try checkSwiftZFSStatus(status, operation: "pool.dataset(\(name))", error: error)
+    guard let datasetHandle else {
+      throw invariantError("pool.dataset(\(name))", "C shim returned no dataset")
+    }
+    return try Dataset.make(handle: datasetHandle)
+  }
+
   /// Datasets immediately below the pool root dataset.
   ///
   /// The pool root dataset itself is not included. This operation is non-recursive.

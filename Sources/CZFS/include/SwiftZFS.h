@@ -347,6 +347,12 @@ extern "C" {
 			swiftzfs_error_t **error);
 
 	/* Immediate dataset hierarchy; neither operation recurses. */
+	/* Direct lookup by full name, including the pool root and snapshots. */
+	swiftzfs_status_t swiftzfs_pool_dataset(
+			const swiftzfs_pool_t *pool,
+			const char *name,
+			swiftzfs_dataset_t **result,
+			swiftzfs_error_t **error);
 	swiftzfs_status_t swiftzfs_pool_children(
 			const swiftzfs_pool_t *pool,
 			swiftzfs_dataset_list_t **result,
