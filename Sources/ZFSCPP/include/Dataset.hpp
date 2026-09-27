@@ -160,6 +160,21 @@ namespace zfs {
 			virtual std::vector<Snapshot> snapshots() const;
 
 			/**
+			 * Look up one snapshot owned directly by this dataset.
+			 *
+			 * @param snapshot_name Snapshot component name, without the dataset name
+			 *        or the '@' separator.
+			 * @return The requested snapshot.
+			 * @throws zfs::Error with Error::Code::invalid_argument if the name is
+			 *         invalid or this dataset is itself a snapshot.
+			 * @throws zfs::Error with Error::Code::not_found if the snapshot does not
+			 *         exist.
+			 * @throws zfs::Error if OpenZFS cannot open the snapshot.
+			 * @throws std::bad_alloc if result storage cannot be allocated.
+			 */
+			Snapshot snapshot(const std::string& snapshot_name) const;
+
+			/**
 			 * Return datasets immediately below this dataset.
 			 *
 			 * This operation is deliberately non-recursive.  Filesystem and volume

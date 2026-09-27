@@ -211,13 +211,26 @@ AC_CHECK_HEADER(
         #include <sys/types.h>
         #endif
     ]])
+AC_CHECK_HEADER(
+    [libzutil.h],
+    [],
+    [AC_MSG_ERROR([required libzutil.h could not be compiled; named pool import requires libzutil.])],
+    [[
+        #include <stdarg.h>
+        #ifdef __FreeBSD__
+        #include <sys/param.h>
+        #include <sys/types.h>
+        #else
+        #include <sys/types.h>
+        #endif
+    ]])
 AC_LANG_POP([C++])
 
 # Restore the caller's CPPFLAGS.  The OpenZFS-specific flags are exported to Package.swift for the CZFS C++ target only.
 CPPFLAGS="$swiftzfs_save_CPPFLAGS"
 
-# libzfs and libnvpair are required by the object model.  Snapshot send support
-# uses libzfs_core directly, so it is also a required link dependency.
+# libzfs and libnvpair are required by the object model. Snapshot send uses
+# libzfs_core, and named pool import uses libzutil.
 AC_CHECK_LIB(
     [zfs],
     [libzfs_init],
@@ -241,6 +254,13 @@ AC_CHECK_LIB(
     [lzc_send],
     [],
     [AC_MSG_ERROR([libzfs_core does not provide lzc_send; snapshot send support requires it])])
+LIBS="$swiftzfs_save_LIBS"
+
+AC_CHECK_LIB(
+    [zutil],
+    [zpool_find_config],
+    [HAVE_LIBZUTIL=yes],
+    [AC_MSG_ERROR([libzutil not found or not linkable; named pool import requires it])])
 LIBS="$swiftzfs_save_LIBS"
 
 AC_CHECK_LIB([zpool], [libzpool_init], [HAVE_LIBZPOOL=yes], [HAVE_LIBZPOOL=no])
@@ -270,6 +290,7 @@ AC_MSG_NOTICE([  ZFS include dir:    ${ZFS_INCLUDEDIR:-system default}])
 AC_MSG_NOTICE([  ZFS library dir:    ${ZFS_LIBDIR:-system default}])
 AC_MSG_NOTICE([  libnvpair:          $HAVE_LIBNVPAIR])
 AC_MSG_NOTICE([  libzfs_core:        $HAVE_LIBZFS_CORE])
+AC_MSG_NOTICE([  libzutil:           $HAVE_LIBZUTIL])
 AC_MSG_NOTICE([  libzpool:           $HAVE_LIBZPOOL])
 AC_MSG_NOTICE([  CZFS C++ flags:      $ZFS_CPPFLAGS])
 AC_MSG_NOTICE([  CZFS linker flags:   $SWIFT_LINKER_FLAGS])

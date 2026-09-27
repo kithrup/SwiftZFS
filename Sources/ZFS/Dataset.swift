@@ -141,6 +141,32 @@ public class Dataset {
     return result
   }
 
+  /// Look up a snapshot by its name relative to this dataset.
+  ///
+  /// Pass a name such as `before-upgrade`, without the dataset name or `@`.
+  /// Throws `ZFSError` with code `.notFound` if the snapshot does not exist.
+  /// Throws `.invalidArgument` for an invalid name or if this is a snapshot.
+  public func snapshot(named name: String) throws -> Snapshot {
+    guard !name.utf8.contains(0) else {
+      throw ZFSError(
+        operation: "dataset.snapshot(\(name))",
+        code: .invalidArgument,
+        systemError: 0,
+        message: "snapshot name must not contain a NUL byte"
+      )
+    }
+    var snapshotHandle: OpaquePointer?
+    var error: OpaquePointer?
+    let status = name.withCString {
+      swiftzfs_dataset_snapshot(handle, $0, &snapshotHandle, &error)
+    }
+    try checkSwiftZFSStatus(status, operation: "dataset.snapshot(\(name))", error: error)
+    guard let snapshotHandle else {
+      throw invariantError("dataset.snapshot(\(name))", "C shim returned no snapshot")
+    }
+    return try Snapshot(handle: snapshotHandle)
+  }
+
   static func takeAll(from list: OpaquePointer) throws -> [Dataset] {
     let count = swiftzfs_dataset_list_count(list)
     var result: [Dataset] = []

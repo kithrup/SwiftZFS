@@ -386,6 +386,76 @@ swiftzfs_context_pools(swiftzfs_context_t *context,
 	}
 }
 
+	extern "C" swiftzfs_status_t
+swiftzfs_context_pool(swiftzfs_context_t *context, const char *name,
+		swiftzfs_pool_t **result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (context == nullptr || name == nullptr || result == nullptr)
+		return invalid_argument(error,
+				"context, pool name, and result must not be null");
+	*result = nullptr;
+	try {
+		*result = new swiftzfs_pool(context->impl.pool(name));
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
+swiftzfs_context_import_pool(swiftzfs_context_t *context, const char *name,
+		swiftzfs_pool_t **result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (context == nullptr || name == nullptr || result == nullptr) {
+		return invalid_argument(error,
+				"context, pool name, and result must not be null");
+	}
+	*result = nullptr;
+
+	try {
+		*result = new swiftzfs_pool(context->impl.import_pool(name));
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
+swiftzfs_context_import_pool_guid_string(swiftzfs_context_t *context,
+		const char *guid_ascii, swiftzfs_pool_t **result,
+		swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (context == nullptr || guid_ascii == nullptr || result == nullptr)
+		return invalid_argument(error,
+				"context, GUID string, and result must not be null");
+	*result = nullptr;
+	try {
+		*result = new swiftzfs_pool(context->impl.import_pool_guid(guid_ascii));
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
+swiftzfs_context_import_pool_guid(swiftzfs_context_t *context, uint64_t guid,
+		swiftzfs_pool_t **result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (context == nullptr || result == nullptr)
+		return invalid_argument(error, "context and result must not be null");
+	*result = nullptr;
+	try {
+		*result = new swiftzfs_pool(context->impl.import_pool(guid));
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
 	extern "C" void
 swiftzfs_pool_list_destroy(swiftzfs_pool_list_t *list)
 {
@@ -796,6 +866,28 @@ swiftzfs_dataset_snapshots(const swiftzfs_dataset_t *dataset,
 						make_dataset(std::move(snapshot))));
 		}
 		*result = list.release();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+	extern "C" swiftzfs_status_t
+swiftzfs_dataset_snapshot(const swiftzfs_dataset_t *dataset,
+		const char *snapshot_name, swiftzfs_dataset_t **result,
+		swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (dataset == nullptr || dataset->impl == nullptr ||
+			snapshot_name == nullptr || result == nullptr) {
+		return invalid_argument(error,
+				"dataset, snapshot name, and result must not be null");
+	}
+	*result = nullptr;
+
+	try {
+		auto snapshot = dataset->impl->snapshot(snapshot_name);
+		*result = new swiftzfs_dataset(make_dataset(std::move(snapshot)));
 		return SWIFTZFS_OK;
 	} catch (...) {
 		return translate_current_exception(error);

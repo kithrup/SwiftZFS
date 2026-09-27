@@ -38,6 +38,7 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("zfs"),
                 .linkedLibrary("zfs_core"),
+                .linkedLibrary("zutil"),
                 .linkedLibrary("nvpair"),
                 .linkedLibrary("pthread"),
                 .linkedLibrary("m"),

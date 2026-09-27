@@ -109,6 +109,67 @@ extern "C" {
 			swiftzfs_context_t *context,
 			swiftzfs_pool_list_t **result,
 			swiftzfs_error_t **error);
+	/**
+	 * Open a pool that is already imported.
+	 * @param context Live ZFS context.
+	 * @param name Name of the imported pool.
+	 * @param result Receives a caller-owned pool handle on success; destroy it
+	 *        with swiftzfs_pool_destroy().
+	 * @param error Receives caller-owned error details on failure; destroy them
+	 *        with swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success or an error status on failure.
+	 */
+	swiftzfs_status_t swiftzfs_context_pool(
+			swiftzfs_context_t *context,
+			const char *name,
+			swiftzfs_pool_t **result,
+			swiftzfs_error_t **error);
+	/**
+	 * Import a pool by name from attached devices.
+	 *
+	 * @param context Live ZFS context.
+	 * @param name Pool name to import.
+	 * @param result Receives a caller-owned pool handle on success; destroy it
+	 *        with swiftzfs_pool_destroy().
+	 * @param error Receives caller-owned error details on failure; destroy them
+	 *        with swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success or an error status on failure.
+	 */
+	swiftzfs_status_t swiftzfs_context_import_pool(
+			swiftzfs_context_t *context,
+			const char *name,
+			swiftzfs_pool_t **result,
+			swiftzfs_error_t **error);
+	/**
+	 * Import a pool by an ASCII GUID in decimal or 0x-prefixed hexadecimal.
+	 * @param context Live ZFS context.
+	 * @param guid_ascii ASCII GUID to import.
+	 * @param result Receives a caller-owned pool handle on success; destroy it
+	 *        with swiftzfs_pool_destroy().
+	 * @param error Receives caller-owned error details on failure; destroy them
+	 *        with swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success or an error status on failure.
+	 */
+	swiftzfs_status_t swiftzfs_context_import_pool_guid_string(
+			swiftzfs_context_t *context,
+			const char *guid_ascii,
+			swiftzfs_pool_t **result,
+			swiftzfs_error_t **error);
+	/**
+	 * Import a pool by its numeric GUID.
+	 * @param context Live ZFS context.
+	 * @param guid Nonzero pool GUID to import.
+	 * @param result Receives a caller-owned pool handle on success; destroy it
+	 *        with swiftzfs_pool_destroy().
+	 * @param error Receives caller-owned error details on failure; destroy them
+	 *        with swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success or an error status on failure.
+	 */
+	swiftzfs_status_t swiftzfs_context_import_pool_guid(
+			swiftzfs_context_t *context,
+			uint64_t guid,
+			swiftzfs_pool_t **result,
+			swiftzfs_error_t **error);
 	void swiftzfs_pool_list_destroy(swiftzfs_pool_list_t *list);
 	size_t swiftzfs_pool_list_count(const swiftzfs_pool_list_t *list);
 
@@ -217,10 +278,27 @@ extern "C" {
 			uint64_t *result,
 			swiftzfs_error_t **error);
 
-	/* Snapshot enumeration and creation. */
+	/* Snapshot enumeration, lookup, and creation. */
 	swiftzfs_status_t swiftzfs_dataset_snapshots(
 			const swiftzfs_dataset_t *dataset,
 			swiftzfs_dataset_list_t **result,
+			swiftzfs_error_t **error);
+	/**
+	 * Look up a snapshot directly by its relative component name.
+	 *
+	 * @param dataset Filesystem or volume that owns the snapshot.
+	 * @param snapshot_name Name without the dataset prefix or '@' separator.
+	 * @param result Receives a dataset handle owned by the caller; destroy it
+	 *        with swiftzfs_dataset_destroy().
+	 * @param error Receives error details on failure; destroy them with
+	 *        swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. A missing snapshot
+	 *         reports SWIFTZFS_ERROR_NOT_FOUND in the error object.
+	 */
+	swiftzfs_status_t swiftzfs_dataset_snapshot(
+			const swiftzfs_dataset_t *dataset,
+			const char *snapshot_name,
+			swiftzfs_dataset_t **result,
 			swiftzfs_error_t **error);
 	swiftzfs_status_t swiftzfs_dataset_create_snapshot(
 			const swiftzfs_dataset_t *dataset,

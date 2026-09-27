@@ -610,6 +610,32 @@ namespace zfs {
 		}
 
 	Snapshot
+		Dataset::snapshot(const std::string& snapshot_name) const
+		{
+			if (is_snapshot() || snapshot_name.empty() ||
+					snapshot_name.find_first_of("/@") != std::string::npos ||
+					snapshot_name.find('\0') != std::string::npos) {
+				throw Error(Error::Code::invalid_argument, 0,
+						"snapshot lookup requires a relative snapshot name on a filesystem or volume");
+			}
+
+			const std::string full_name = name() + "@" + snapshot_name;
+			DatasetHandle handle(zfs_open(impl_->context()->handle(),
+					full_name.c_str(), ZFS_TYPE_SNAPSHOT));
+			if (handle.get() == nullptr) {
+				if (libzfs_errno(impl_->context()->handle()) == EZFS_NOENT) {
+					throw Error(Error::Code::not_found, 0,
+							"snapshot not found: " + full_name);
+				}
+				detail::throw_libzfs_error(*impl_->context(), full_name.c_str());
+			}
+
+			auto snapshot_impl = std::make_shared<Dataset::Impl>(
+					impl_->context(), full_name, ZFS_TYPE_SNAPSHOT);
+			return Snapshot(std::move(snapshot_impl));
+		}
+
+	Snapshot
 		Dataset::create_snapshot(const std::string& snapshot_name,
 				const PropertyValues& properties) const
 		{

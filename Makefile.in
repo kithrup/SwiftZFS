@@ -52,7 +52,7 @@ $(CPP_LIBRARY): $(CPP_LIBRARY_OBJS)
 	$(RANLIB) $@
 
 $(CPP_LIST_POOLS): Tests/cpp/list-pools.cpp $(CPP_LIBRARY) Sources/ZFSCPP/include/ZFS.hpp | $(CPP_BUILD_DIR)
-	$(CXX) $(CXXFLAGS_LOCAL) $(SWIFTZFS_CXXFLAGS) $(CPPFLAGS_LOCAL) Tests/cpp/list-pools.cpp $(CPP_LIBRARY) -lzfs -lzfs_core -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
+	$(CXX) $(CXXFLAGS_LOCAL) $(SWIFTZFS_CXXFLAGS) $(CPPFLAGS_LOCAL) Tests/cpp/list-pools.cpp $(CPP_LIBRARY) -lzfs -lzfs_core -lzutil -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
 
 cpp-build: $(CPP_LIBRARY) $(CPP_LIST_POOLS)
 
@@ -65,7 +65,7 @@ $(CPP_BUILD_DIR)/examples:
 	mkdir -p $@
 
 $(CPP_BUILD_DIR)/examples/%: examples/C++/%.cpp $(CPP_LIBRARY) $(CPP_EXAMPLE_HEADERS) | $(CPP_BUILD_DIR)/examples
-	$(CXX) $(CXXFLAGS_LOCAL) -I$(CPP_BUILD_DIR)/include $< $(CPP_LIBRARY) -lzfs -lzfs_core -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
+	$(CXX) $(CXXFLAGS_LOCAL) -I$(CPP_BUILD_DIR)/include $< $(CPP_LIBRARY) -lzfs -lzfs_core -lzutil -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
 
 cpp-examples: $(CPP_EXAMPLE_BINS)
 
@@ -88,7 +88,7 @@ $(C_SHIM_TEST_OBJ): Tests/c/c-shim.c Sources/CZFS/include/SwiftZFS.h | $(CPP_BUI
 	$(CC) -std=c11 -Wall -Wextra -Werror -ISources/CZFS/include -c Tests/c/c-shim.c -o $@
 
 $(C_SHIM_TEST): $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) | $(CPP_BUILD_DIR)
-	$(CXX) $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) -lzfs -lzfs_core -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
+	$(CXX) $(C_SHIM_TEST_OBJ) $(C_SHIM_OBJ) $(CPP_LIBRARY_OBJS) -lzfs -lzfs_core -lzutil -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
 
 c-shim-build: $(C_SHIM_TEST)
 
