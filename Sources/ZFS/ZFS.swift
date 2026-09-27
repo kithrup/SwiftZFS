@@ -7,6 +7,9 @@ public typealias GUID = UInt64
 public final class ZFS {
   private let handle: OpaquePointer
 
+  /// Create a context for discovering and opening ZFS pools.
+  ///
+  /// - Throws: `ZFSError` if the OpenZFS context cannot be initialized.
   public init() throws {
     var context: OpaquePointer?
     var error: OpaquePointer?

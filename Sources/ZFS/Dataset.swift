@@ -267,9 +267,17 @@ public final class Snapshot: Dataset {
 
 /// Filesystems and volumes discovered in a single pool traversal.
 public struct DatasetCollection {
+  /// Filesystem datasets, including the pool root dataset.
   public let filesystems: [Filesystem]
+
+  /// Volume datasets discovered in the same traversal.
   public let volumes: [Volume]
 
+  /// Create a collection from previously discovered datasets.
+  ///
+  /// - Parameters:
+  ///   - filesystems: Filesystem datasets, including any pool root.
+  ///   - volumes: Volume datasets.
   public init(filesystems: [Filesystem], volumes: [Volume]) {
     self.filesystems = filesystems
     self.volumes = volumes

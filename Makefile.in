@@ -2,6 +2,7 @@ SWIFT ?= swift
 CC ?= cc
 CXX ?= c++
 DOXYGEN ?= doxygen
+DOCC ?= docc
 AR = @AR@
 RANLIB = @RANLIB@
 INSTALL = @INSTALL@
@@ -37,7 +38,7 @@ CPPFLAGS_LOCAL = -ISources/ZFSCPP/include -ISources/ZFSCPP
 C_SHIM_CPPFLAGS = -ISources/CZFS/include -ISources/ZFSCPP/include
 CXXFLAGS_LOCAL = -std=c++17 -Wall -Wextra -Werror
 
-.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run cpp-install cpp-examples swift-examples c-shim-build c-shim-test c-shim-run docs
+.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run cpp-install cpp-examples swift-examples c-shim-build c-shim-test c-shim-run docs cpp-docs swift-docs
 
 all: cpp-build c-shim-build
 
@@ -98,12 +99,35 @@ c-shim-test: $(C_SHIM_TEST)
 c-shim-run: $(C_SHIM_TEST)
 	$(C_SHIM_TEST)
 
-docs:
+docs: cpp-docs swift-docs
+
+cpp-docs:
 	@command -v $(DOXYGEN) >/dev/null 2>&1 || { \
 		echo "error: doxygen not found; install Doxygen or set DOXYGEN=/path/to/doxygen" >&2; \
 		exit 1; \
 	}
 	$(DOXYGEN) Doxyfile
+
+swift-docs:
+	@command -v $(DOCC) >/dev/null 2>&1 || { \
+		echo "error: docc not found; install Swift DocC or set DOCC=/path/to/docc" >&2; \
+		exit 1; \
+	}
+	$(SWIFT_ENV) $(SWIFT) package dump-symbol-graph
+	@set -e; \
+		symbolgraph_dir=$$(dirname "$$($(SWIFT_ENV) $(SWIFT) build --show-bin-path)")/symbolgraph; \
+		test -f "$$symbolgraph_dir/ZFS.symbols.json" || { \
+			echo "error: ZFS symbol graph not found in $$symbolgraph_dir" >&2; \
+			exit 1; \
+		}; \
+		mkdir -p .build/swift-docs-symbolgraph; \
+		cp "$$symbolgraph_dir/ZFS.symbols.json" .build/swift-docs-symbolgraph/; \
+		$(DOCC) convert Sources/ZFS/ZFS.docc \
+			--additional-symbol-graph-dir .build/swift-docs-symbolgraph \
+			--output-dir docs/swift.doccarchive \
+			--fallback-display-name ZFS \
+			--fallback-bundle-identifier org.swiftzfs.ZFS \
+			--no-transform-for-static-hosting
 
 # Existing Swift layer retained for later work, but it is no longer the
 # default while the C++ API is being designed.

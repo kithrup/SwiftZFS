@@ -18,7 +18,8 @@ gmake test
 ```
 
 Use GNU make (`gmake`) on FreeBSD. The C++ build uses C++17 with strict
-warnings. `gmake docs` builds the C++ API reference when Doxygen is installed.
+warnings. `gmake docs` builds the C++ API reference with Doxygen and the Swift
+API reference with DocC.
 
 ## C++ applications
 
@@ -53,6 +54,23 @@ On FreeBSD, external SwiftPM builds need the `SWIFTZFS_CXXFLAGS` and
 `SWIFTZFS_LINKER_FLAGS` values from the configured `Makefile` in their
 environment. These flags supply the OpenZFS source compatibility headers and
 any custom library path.
+
+The Swift API is documented in source comments and the
+[ZFS documentation catalog](Sources/ZFS/ZFS.docc/ZFS.md). For example, open a
+dataset by its full name without manually searching `pool.datasets()`:
+
+```swift
+import ZFS
+
+let zfs = try ZFS()
+let pool = try zfs.pool(named: "tank")
+let dataset = try pool.dataset(named: "tank/home")
+print(dataset.name)
+```
+
+Run `gmake docs` to generate both API references. The C++ HTML reference is
+written to `docs/html/`, and the Swift DocC archive to `docs/swift.doccarchive/`.
+Use `gmake cpp-docs` or `gmake swift-docs` to build either reference separately.
 
 ## Examples
 

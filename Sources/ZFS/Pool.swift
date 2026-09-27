@@ -57,6 +57,12 @@ public final class Pool {
   /// `ZFSError` with code `.notFound`; a name outside this pool throws
   /// `.invalidArgument`. Filesystem and volume lookup builds the pool's
   /// hierarchy once, so `children()` on the returned dataset remains accurate.
+  ///
+  /// - Parameter name: Full dataset name, such as `tank/home` or
+  ///   `tank/home@backup`.
+  /// - Returns: A `Filesystem`, `Volume`, or `Snapshot` as a `Dataset`.
+  /// - Throws: `ZFSError` when the name is invalid, the dataset is missing,
+  ///   or OpenZFS cannot open it.
   public func dataset(named name: String) throws -> Dataset {
     guard !name.utf8.contains(0) else {
       throw ZFSError(
