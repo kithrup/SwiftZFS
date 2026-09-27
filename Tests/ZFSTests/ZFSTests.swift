@@ -74,6 +74,35 @@ final class ZFSTests: XCTestCase {
     }
   }
 
+  func testSnapshotSend() async throws {
+    guard let snapshotName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_SEND_SNAPSHOT"]
+    else {
+      throw XCTSkip("Set SWIFTZFS_TEST_SEND_SNAPSHOT to run a full send against a local snapshot")
+    }
+
+    let poolName = String(
+      snapshotName.split(separator: "/", maxSplits: 1)[0].split(separator: "@")[0])
+    let pool = try ZFS().pool(named: poolName)
+    let snapshot = try XCTUnwrap(pool.dataset(named: snapshotName) as? Snapshot)
+
+    var byteCount = 0
+    for try await data in try snapshot.send() {
+      XCTAssertFalse(data.isEmpty)
+      byteCount += data.count
+    }
+    XCTAssertGreaterThan(byteCount, 0)
+
+    if let baseName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_SEND_BASE"] {
+      let base = try XCTUnwrap(pool.dataset(named: baseName) as? Snapshot)
+      var incrementalBytes = 0
+      for try await data in try snapshot.send(from: base) {
+        XCTAssertFalse(data.isEmpty)
+        incrementalBytes += data.count
+      }
+      XCTAssertGreaterThan(incrementalBytes, 0)
+    }
+  }
+
   func testPoolDatasetLookup() throws {
     let zfs = try ZFS()
     guard let pool = try zfs.pools().first else {

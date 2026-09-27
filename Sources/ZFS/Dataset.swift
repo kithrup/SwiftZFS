@@ -255,6 +255,80 @@ public final class Volume: Dataset {
 public final class Snapshot: Dataset {
   public override var isSnapshot: Bool { true }
 
+  /// Start a full send stream for this snapshot.
+  ///
+  /// - Parameter options: Features to include in the stream.
+  /// - Returns: A single-consumer stream of data chunks.
+  /// - Throws: `ZFSError` if the stream cannot be started.
+  public func send(options: SendOptions = SendOptions()) throws -> SendStream {
+    var stream: OpaquePointer?
+    var error: OpaquePointer?
+    var cOptions = options.cValue
+    let status = swiftzfs_snapshot_send_stream(handle, &cOptions, &stream, &error)
+    try checkSwiftZFSStatus(status, operation: "snapshot.send", error: error)
+    guard let stream else {
+      throw invariantError("snapshot.send", "C shim returned no send stream")
+    }
+    return SendStream(handle: stream)
+  }
+
+  /// Start an incremental send ending at this snapshot.
+  ///
+  /// - Parameters:
+  ///   - earlier: Earlier snapshot used as the incremental base.
+  ///   - options: Features to include in the stream.
+  /// - Returns: A single-consumer stream of data chunks.
+  /// - Throws: `ZFSError` if the stream cannot be started.
+  public func send(from earlier: Snapshot, options: SendOptions = SendOptions()) throws
+    -> SendStream
+  {
+    var stream: OpaquePointer?
+    var error: OpaquePointer?
+    var cOptions = options.cValue
+    let status = swiftzfs_snapshot_send_stream_incremental(
+      handle, earlier.handle, &cOptions, &stream, &error)
+    try checkSwiftZFSStatus(status, operation: "snapshot.send(from:)", error: error)
+    guard let stream else {
+      throw invariantError("snapshot.send(from:)", "C shim returned no send stream")
+    }
+    return SendStream(handle: stream)
+  }
+
+  /// Write a full send directly to a caller-owned file descriptor.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: Output descriptor, which remains open.
+  ///   - options: Features to include in the stream.
+  /// - Throws: `ZFSError` if the descriptor is invalid or send fails.
+  public func send(toFileDescriptor fileDescriptor: Int32, options: SendOptions = SendOptions())
+    throws
+  {
+    var error: OpaquePointer?
+    var cOptions = options.cValue
+    let status = swiftzfs_snapshot_send(handle, fileDescriptor, &cOptions, &error)
+    try checkSwiftZFSStatus(status, operation: "snapshot.send(toFileDescriptor:)", error: error)
+  }
+
+  /// Write an incremental send directly to a caller-owned file descriptor.
+  ///
+  /// - Parameters:
+  ///   - fileDescriptor: Output descriptor, which remains open.
+  ///   - earlier: Earlier snapshot used as the incremental base.
+  ///   - options: Features to include in the stream.
+  /// - Throws: `ZFSError` if the descriptor is invalid or send fails.
+  public func send(
+    toFileDescriptor fileDescriptor: Int32,
+    from earlier: Snapshot,
+    options: SendOptions = SendOptions()
+  ) throws {
+    var error: OpaquePointer?
+    var cOptions = options.cValue
+    let status = swiftzfs_snapshot_send_incremental(
+      handle, earlier.handle, fileDescriptor, &cOptions, &error)
+    try checkSwiftZFSStatus(
+      status, operation: "snapshot.send(toFileDescriptor:from:)", error: error)
+  }
+
   /// Snapshots cannot themselves contain child datasets.
   public override func children() throws -> [Dataset] { [] }
 

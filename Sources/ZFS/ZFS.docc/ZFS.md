@@ -33,6 +33,26 @@ Filesystem and volume lookup constructs the pool hierarchy in one traversal.
 The returned dataset retains its immediate children, and `children()` walks
 that cached hierarchy. Snapshot lookup opens the named snapshot directly.
 
+## Send a snapshot
+
+Look up a snapshot and consume its send stream in bounded chunks:
+
+```swift
+let dataset = try pool.dataset(named: "tank/home")
+let snapshot = try dataset.snapshot(named: "before-upgrade")
+for try await data in try snapshot.send() {
+  // Write each Data chunk to your destination.
+}
+```
+
+Use `try newer.send(from: older)` for an incremental stream. `SendOptions`
+controls embedded data, large blocks, compression, and raw encrypted sends.
+For an existing output file descriptor, `try snapshot.send(toFileDescriptor: fd)`
+writes directly without a Swift read loop. The caller keeps ownership of `fd`.
+
+A send stream has one consumer. Releasing it before the end may block while
+OpenZFS finishes producing and the stream is drained.
+
 ## Topics
 
 ### Discover pools
@@ -47,6 +67,8 @@ that cached hierarchy. Snapshot lookup opens the named snapshot directly.
 - ``Volume``
 - ``Snapshot``
 - ``DatasetCollection``
+- ``SendStream``
+- ``SendOptions``
 
 ### Values and errors
 
