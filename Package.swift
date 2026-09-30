@@ -33,7 +33,7 @@ let package = Package(
                 .headerSearchPath("internal"),
                 .define("__STDC_LIMIT_MACROS"),
                 .define("__STDC_CONSTANT_MACROS"),
-                .unsafeFlags(zfsCXXFlags),
+//                .unsafeFlags(zfsCXXFlags),
             ],
             linkerSettings: [
                 .linkedLibrary("zfs"),
@@ -42,7 +42,7 @@ let package = Package(
                 .linkedLibrary("nvpair"),
                 .linkedLibrary("pthread"),
                 .linkedLibrary("m"),
-                .unsafeFlags(zfsLinkerFlags),
+//                .unsafeFlags(zfsLinkerFlags),
             ]
         ),
         .target(
