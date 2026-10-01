@@ -1,4 +1,5 @@
-SWIFT ?= swift
+SWIFT = @SWIFT@
+BUILD_SWIFT = @BUILD_SWIFT@
 CC ?= cc
 CXX ?= c++
 DOXYGEN ?= doxygen
@@ -40,7 +41,10 @@ CXXFLAGS_LOCAL = -std=c++17 -Wall -Wextra -Werror
 
 .PHONY: all build debug release test run clean cpp-build cpp-test cpp-run cpp-install cpp-examples swift-examples c-shim-build c-shim-test c-shim-run docs cpp-docs swift-docs
 
-all: cpp-build c-shim-build
+all: cpp-build
+ifeq ($(BUILD_SWIFT),yes)
+all: c-shim-build
+endif
 
 $(CPP_BUILD_DIR):
 	mkdir -p $(CPP_BUILD_DIR)
@@ -99,7 +103,10 @@ c-shim-test: $(C_SHIM_TEST)
 c-shim-run: $(C_SHIM_TEST)
 	$(C_SHIM_TEST)
 
-docs: cpp-docs swift-docs
+docs: cpp-docs
+ifeq ($(BUILD_SWIFT),yes)
+docs: swift-docs
+endif
 
 cpp-docs:
 	@command -v $(DOXYGEN) >/dev/null 2>&1 || { \
@@ -108,6 +115,7 @@ cpp-docs:
 	}
 	$(DOXYGEN) Doxyfile
 
+ifeq ($(BUILD_SWIFT),yes)
 swift-docs:
 	@command -v $(DOCC) >/dev/null 2>&1 || { \
 		echo "error: docc not found; install Swift DocC or set DOCC=/path/to/docc" >&2; \
@@ -145,7 +153,18 @@ test:
 
 run:
 	$(SWIFT_ENV) $(SWIFT) run zfs-example
+else
+build debug release: cpp-build
+test: cpp-test
+run: cpp-run
+
+swift-docs swift-examples:
+	@echo "error: Swift support is disabled; re-run configure with a Swift toolchain available" >&2
+	@exit 1
+endif
 
 clean:
 	rm -rf $(CPP_BUILD_DIR)
+ifeq ($(BUILD_SWIFT),yes)
 	$(SWIFT) package clean
+endif

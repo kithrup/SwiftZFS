@@ -9,6 +9,34 @@ AC_PROG_INSTALL
 AC_CHECK_TOOL([AR], [ar])
 
 AC_ARG_WITH(
+    [swift],
+    [AS_HELP_STRING([--with-swift], [require the Swift toolchain (default: auto-detect)])
+AS_HELP_STRING([--without-swift], [build only the C++ interface])],
+    [],
+    [with_swift=auto])
+AS_CASE([$with_swift], [yes|no|auto], [],
+    [AC_MSG_ERROR([--with-swift accepts only yes, no, or auto])])
+
+AC_ARG_VAR([SWIFT], [Swift driver used for Swift package commands])
+AC_ARG_VAR([SWIFTC], [Swift compiler])
+BUILD_SWIFT=no
+AS_IF([test "x$with_swift" != xno], [
+    AC_PATH_PROG([SWIFTC], [swiftc])
+    AC_PATH_PROG([SWIFT], [swift])
+    AS_IF([test -n "$SWIFTC" && test -n "$SWIFT" &&
+           "$SWIFTC" --version >/dev/null 2>&1 &&
+           "$SWIFT" --version >/dev/null 2>&1], [
+        BUILD_SWIFT=yes
+    ], [
+        AS_IF([test "x$with_swift" = xyes], [
+            AC_MSG_ERROR([--with-swift requires a working Swift toolchain; set SWIFT and SWIFTC or use --without-swift])
+        ])
+        AC_MSG_NOTICE([Swift toolchain not found; building only the C++ interface])
+    ])
+])
+AC_SUBST([BUILD_SWIFT])
+
+AC_ARG_WITH(
     [zfs-includedir],
     [AS_HELP_STRING([--with-zfs-includedir=DIR],
         [directory containing installed libzfs.h, or an OpenZFS source-tree include directory])],
@@ -283,6 +311,7 @@ AC_OUTPUT
 
 AC_MSG_NOTICE([SwiftZFS configuration:])
 AC_MSG_NOTICE([  host:               $host])
+AC_MSG_NOTICE([  Swift interface:    $BUILD_SWIFT])
 AC_MSG_NOTICE([  ZFS provider:        $ZFS_PROVIDER])
 AC_MSG_NOTICE([  ZFS source dir:     ${ZFS_SOURCE_DIR:-not a source-tree build}])
 AC_MSG_NOTICE([  ZFS build dir:      ${ZFS_BUILD_DIR:-not required}])

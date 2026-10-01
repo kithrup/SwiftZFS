@@ -8,6 +8,13 @@ that C++ layer through a C ABI. The Swift package exports two library products:
 
 Run `./autogen.sh` if the `configure` script has not been generated, then run
 `./configure`. The configure script locates the OpenZFS headers and libraries.
+Swift is detected automatically. Use `--with-swift` to require a working
+Swift toolchain and fail configuration if it is unavailable.
+If the Swift toolchain is unavailable, or `--without-swift` is specified,
+the default build includes only the C++ interface. In this mode, `gmake build`,
+`gmake test`, and `gmake run` use the C++ targets, `gmake docs` builds only the
+C++ reference, and `gmake clean` does not invoke Swift. The explicit
+`c-shim-*` targets remain available.
 Use `--with-zfs-includedir` and `--with-zfs-libdir` for nonstandard locations.
 
 ``` tcsh
