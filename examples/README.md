@@ -40,8 +40,8 @@ examples/Swift/.build/debug/list-snapshots zroot/ROOT
 
 Replace `zroot` and `zroot/ROOT` with names on your system. The Swift examples
 form a separate SwiftPM package that depends on this repository's `ZFS`
-product. `gmake swift-examples` passes the configured OpenZFS flags to that
-package on FreeBSD.
+product. `gmake swift-examples` builds the C++ archive and supplies its local
+pkg-config metadata to that package.
 
 To build the C++ examples against an installed SwiftZFS library instead,
 run `gmake -C examples/C++`. That route uses `pkg-config` and requires

@@ -6,5 +6,5 @@ libdir=@libdir@
 Name: swiftzfs-cpp
 Description: C++17 interface to OpenZFS
 Version: @PACKAGE_VERSION@
-Cflags: -I${includedir}
-Libs: -L${libdir} -lswiftzfs_cpp -lzfs -lzfs_core -lzutil -lnvpair -pthread -lm @SWIFT_LINKER_FLAGS@
+Cflags: -I${includedir} -I${includedir}/swiftzfs
+Libs: -L${libdir} -lswiftzfs_cpp -lzfs -lzfs_core -lzutil -lnvpair

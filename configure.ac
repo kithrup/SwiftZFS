@@ -1,5 +1,5 @@
 AC_PREREQ([2.69])
-AC_INIT([SwiftZFS], [0.6.1], [none])
+AC_INIT([SwiftZFS], [0.1.2], [none])
 AC_CONFIG_SRCDIR([Package.swift])
 AC_CANONICAL_HOST
 AC_PROG_CC
@@ -254,7 +254,7 @@ AC_CHECK_HEADER(
     ]])
 AC_LANG_POP([C++])
 
-# Restore the caller's CPPFLAGS.  The OpenZFS-specific flags are exported to Package.swift for the CZFS C++ target only.
+# Restore the caller's CPPFLAGS after checking the OpenZFS headers.
 CPPFLAGS="$swiftzfs_save_CPPFLAGS"
 
 # libzfs and libnvpair are required by the object model. Snapshot send uses

@@ -2,7 +2,8 @@
 
 SwiftZFS provides a C++17 interface to OpenZFS and a Swift interface built on
 that C++ layer through a C ABI. The Swift package exports two library products:
-`ZFSCPP` for C++ targets and `ZFS` for Swift targets.
+`ZFSCPP` for C++ targets and `ZFS` for Swift targets. SwiftPM uses the installed
+C++ library through `pkg-config`; GNU make builds that library from source.
 
 ## Build
 
@@ -28,6 +29,12 @@ Use GNU make (`gmake`) on FreeBSD. The C++ build uses C++17 with strict
 warnings. `gmake docs` builds the C++ API reference with Doxygen and the Swift
 API reference with DocC.
 
+`gmake build`, `gmake test`, and the other Swift targets first build the C++
+archive and stage its public headers locally. They set `PKG_CONFIG_PATH` for
+SwiftPM automatically; a system-wide installation is not needed for development.
+For direct `swift build` commands, first run `gmake swift-support` and set
+`PKG_CONFIG_PATH` to the checkout's `.build-cpp/pkgconfig` directory.
+
 ## C++ applications
 
 `gmake cpp-build` produces `.build-cpp/libswiftzfs_cpp.a`. To install the
@@ -46,7 +53,22 @@ link step. SwiftPM C++ targets can instead depend on the `ZFSCPP` product.
 
 ## Swift applications
 
-Add this package as a SwiftPM dependency and depend on its `ZFS` product:
+First build and install the C++ library from the same SwiftZFS revision as
+your package dependency. For example, install it under your home directory:
+
+``` tcsh
+./configure --prefix=$HOME/.local
+gmake cpp-install
+setenv PKG_CONFIG_PATH "$HOME/.local/lib/pkgconfig"
+pkg-config --cflags --libs swiftzfs-cpp
+```
+
+If `PKG_CONFIG_PATH` is already set, prepend the new directory to its existing
+value. FreeBSD also needs its base-system OpenZFS sources under
+`/usr/src/sys/contrib/openzfs`, or an alternate tree selected with configure.
+Linux needs the OpenZFS development headers and libraries.
+
+Then add this package as a SwiftPM dependency and depend on its `ZFS` product:
 
 ``` swift
 dependencies: [.package(path: "/path/to/SwiftZFS")],
@@ -57,10 +79,16 @@ targets: [
 ]
 ```
 
-On FreeBSD, external SwiftPM builds need the `SWIFTZFS_CXXFLAGS` and
-`SWIFTZFS_LINKER_FLAGS` values from the configured `Makefile` in their
-environment. These flags supply the OpenZFS source compatibility headers and
-any custom library path.
+Git URL dependencies use the same setup as the local path dependency above.
+Use a revision containing the system-library manifest; older releases such as
+`0.1.1` still try to compile OpenZFS-dependent C++ sources inside SwiftPM.
+
+SwiftPM builds the C shim and Swift interface, linking the installed C++ archive.
+Only its public headers enter SwiftPM's header search paths. OpenZFS compatibility
+headers stay in the GNU make build, and the package requires no `unsafeFlags`
+that would prevent use as a versioned dependency. The old
+`SWIFTZFS_CXXFLAGS` and `SWIFTZFS_LINKER_FLAGS` environment variables are no
+longer used by the package manifest.
 
 The Swift API is documented in source comments and the
 [ZFS documentation catalog](Sources/ZFS/ZFS.docc/ZFS.md). For example, open a

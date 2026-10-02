@@ -14,7 +14,7 @@ libdir = @libdir@
 SWIFTZFS_CXXFLAGS = @ZFS_CPPFLAGS@
 SWIFTZFS_LINKER_FLAGS = @SWIFT_LINKER_FLAGS@
 
-SWIFT_ENV = SWIFTZFS_CXXFLAGS='$(SWIFTZFS_CXXFLAGS)' SWIFTZFS_LINKER_FLAGS='$(SWIFTZFS_LINKER_FLAGS)'
+SWIFT_ENV = PKG_CONFIG_PATH='$(abspath $(CPP_BUILD_DIR))/pkgconfig:$(PKG_CONFIG_PATH)'
 
 CPP_BUILD_DIR = .build-cpp
 CPP_LIBRARY_SOURCES = \
@@ -27,6 +27,7 @@ CPP_LIBRARY_SOURCES = \
 	Sources/ZFSCPP/ZFSManager.cpp
 CPP_LIBRARY_OBJS = $(patsubst Sources/ZFSCPP/%.cpp,$(CPP_BUILD_DIR)/%.o,$(CPP_LIBRARY_SOURCES))
 CPP_LIBRARY = $(CPP_BUILD_DIR)/libswiftzfs_cpp.a
+CPP_BUILD_PC = $(CPP_BUILD_DIR)/pkgconfig/swiftzfs-cpp.pc
 CPP_PUBLIC_HEADERS = $(wildcard Sources/ZFSCPP/include/*.hpp)
 CPP_EXAMPLE_HEADERS = $(CPP_BUILD_DIR)/include/swiftzfs/.stamp
 CPP_EXAMPLE_NAMES = list-pools list-datasets list-snapshots
@@ -39,7 +40,7 @@ CPPFLAGS_LOCAL = -ISources/ZFSCPP/include -ISources/ZFSCPP
 C_SHIM_CPPFLAGS = -ISources/CZFS/include -ISources/ZFSCPP/include
 CXXFLAGS_LOCAL = -std=c++17 -Wall -Wextra -Werror
 
-.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run cpp-install cpp-examples swift-examples c-shim-build c-shim-test c-shim-run docs cpp-docs swift-docs
+.PHONY: all build debug release test run clean cpp-build cpp-test cpp-run cpp-install cpp-examples swift-support swift-examples c-shim-build c-shim-test c-shim-run docs cpp-docs swift-docs
 
 all: cpp-build
 ifeq ($(BUILD_SWIFT),yes)
@@ -73,6 +74,17 @@ $(CPP_BUILD_DIR)/examples/%: examples/C++/%.cpp $(CPP_LIBRARY) $(CPP_EXAMPLE_HEA
 	$(CXX) $(CXXFLAGS_LOCAL) -I$(CPP_BUILD_DIR)/include $< $(CPP_LIBRARY) -lzfs -lzfs_core -lzutil -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
 
 cpp-examples: $(CPP_EXAMPLE_BINS)
+
+# SwiftPM consumes the same public headers and archive as installed clients.
+# Keep OpenZFS compatibility include paths out of Swift's Clang modules.
+$(CPP_BUILD_PC): swiftzfs-cpp.pc Makefile | $(CPP_BUILD_DIR)
+	mkdir -p $(dir $@)
+	sed -e 's|^prefix=.*|prefix=$(abspath $(CPP_BUILD_DIR))|' \
+	    -e 's|^exec_prefix=.*|exec_prefix=$${prefix}|' \
+	    -e 's|^includedir=.*|includedir=$${prefix}/include|' \
+	    -e 's|^libdir=.*|libdir=$${prefix}|' $< > $@
+
+swift-support: $(CPP_LIBRARY) $(CPP_EXAMPLE_HEADERS) $(CPP_BUILD_PC)
 
 cpp-install: $(CPP_LIBRARY) swiftzfs-cpp.pc
 	$(INSTALL) -d $(DESTDIR)$(includedir)/swiftzfs $(DESTDIR)$(libdir) $(DESTDIR)$(libdir)/pkgconfig
@@ -116,7 +128,7 @@ cpp-docs:
 	$(DOXYGEN) Doxyfile
 
 ifeq ($(BUILD_SWIFT),yes)
-swift-docs:
+swift-docs: swift-support
 	@command -v $(DOCC) >/dev/null 2>&1 || { \
 		echo "error: docc not found; install Swift DocC or set DOCC=/path/to/docc" >&2; \
 		exit 1; \
@@ -139,19 +151,19 @@ swift-docs:
 
 # Existing Swift layer retained for later work, but it is no longer the
 # default while the C++ API is being designed.
-build debug:
+build debug: swift-support
 	$(SWIFT_ENV) $(SWIFT) build
 
-swift-examples:
+swift-examples: swift-support
 	$(SWIFT_ENV) $(SWIFT) build --package-path examples/Swift
 
-release:
+release: swift-support
 	$(SWIFT_ENV) $(SWIFT) build -c release
 
-test:
+test: swift-support
 	$(SWIFT_ENV) $(SWIFT) test
 
-run:
+run: swift-support
 	$(SWIFT_ENV) $(SWIFT) run zfs-example
 else
 build debug release: cpp-build
