@@ -1,0 +1,5 @@
+module ZFSCPP [system] {
+    requires cplusplus
+    header "shim.h"
+    export *
+}
