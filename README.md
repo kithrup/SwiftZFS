@@ -83,6 +83,15 @@ Git URL dependencies use the same setup as the local path dependency above.
 Use a revision containing the system-library manifest; older releases such as
 `0.1.1` still try to compile OpenZFS-dependent C++ sources inside SwiftPM.
 
+If SwiftPM reports `couldn't find pc file for swiftzfs-cpp`, its
+`PKG_CONFIG_PATH` does not contain the directory where `swiftzfs-cpp.pc` was
+installed. Set it before building the consuming project, for example:
+
+``` tcsh
+setenv PKG_CONFIG_PATH "$HOME/.local/lib/pkgconfig"
+swift build
+```
+
 SwiftPM builds the C shim and Swift interface, linking the installed C++ archive.
 Only its public headers enter SwiftPM's header search paths. OpenZFS compatibility
 headers stay in the GNU make build, and the package requires no `unsafeFlags`

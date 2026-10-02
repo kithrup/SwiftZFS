@@ -1,6 +1,6 @@
 #include "SwiftZFS.h"
 
-#include "ZFS.hpp"
+#include <swiftzfs/ZFS.hpp>
 
 #include <cstdlib>
 #include <cstring>
