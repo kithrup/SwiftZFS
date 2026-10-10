@@ -501,6 +501,127 @@ swiftzfs_pool_copy_name(const swiftzfs_pool_t *pool, char **result,
 	}
 }
 
+extern "C" swiftzfs_status_t
+swiftzfs_dataset_creation_time(const swiftzfs_dataset_t *dataset,
+							   uint64_t *result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (dataset == nullptr || result == nullptr || dataset->impl == nullptr)
+		return invalid_argument(error, "dataset and result must not be null");
+	*result = 0;
+	try {
+		*result = dataset->impl->creation_time();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+extern "C" swiftzfs_status_t
+swiftzfs_dataset_copy_compression(const swiftzfs_dataset_t *dataset,
+								  char **result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (dataset == nullptr || result == nullptr || dataset->impl == nullptr)
+		return invalid_argument(error, "dataset and result must not be null");
+	*result = nullptr;
+	try {
+		*result = copy_string(dataset->impl->compression());
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+extern "C" swiftzfs_status_t
+swiftzfs_dataset_readonly(const swiftzfs_dataset_t *dataset, bool *result,
+						  swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (dataset == nullptr || result == nullptr || dataset->impl == nullptr)
+		return invalid_argument(error, "dataset and result must not be null");
+	*result = 0;
+	try {
+		*result = dataset->impl->readonly();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+extern "C" swiftzfs_status_t
+swiftzfs_dataset_allocated_space(const swiftzfs_dataset_t *dataset,
+								 uint64_t *result, swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (dataset == nullptr || result == nullptr || dataset->impl == nullptr)
+		return invalid_argument(error, "dataset and result must not be null");
+	*result = 0;
+	try {
+		*result = dataset->impl->allocated_space();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+extern "C" swiftzfs_status_t
+swiftzfs_dataset_free_space(const swiftzfs_dataset_t *dataset, uint64_t *result,
+							swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (dataset == nullptr || result == nullptr || dataset->impl == nullptr)
+		return invalid_argument(error, "dataset and result must not be null");
+	*result = 0;
+	try {
+		*result = dataset->impl->free_space();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+extern "C" swiftzfs_status_t swiftzfs_pool_readonly(const swiftzfs_pool_t *pool,
+													bool *result,
+													swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (pool == nullptr || result == nullptr)
+		return invalid_argument(error, "pool and result must not be null");
+	*result = 0;
+	try {
+		*result = pool->impl.readonly();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+extern "C" swiftzfs_status_t
+swiftzfs_pool_allocated_space(const swiftzfs_pool_t *pool, uint64_t *result,
+							  swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (pool == nullptr || result == nullptr)
+		return invalid_argument(error, "pool and result must not be null");
+	*result = 0;
+	try {
+		*result = pool->impl.allocated_space();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+extern "C" swiftzfs_status_t
+swiftzfs_pool_free_space(const swiftzfs_pool_t *pool, uint64_t *result,
+						 swiftzfs_error_t **error)
+{
+	clear_error(error);
+	if (pool == nullptr || result == nullptr)
+		return invalid_argument(error, "pool and result must not be null");
+	*result = 0;
+	try {
+		*result = pool->impl.free_space();
+		return SWIFTZFS_OK;
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
 	extern "C" swiftzfs_status_t
 swiftzfs_pool_guid(const swiftzfs_pool_t *pool, uint64_t *result,
 		swiftzfs_error_t **error)

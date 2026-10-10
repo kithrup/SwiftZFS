@@ -55,6 +55,39 @@ namespace zfs {
 					zpool_get_prop_int(impl_->handle(), ZPOOL_PROP_GUID, nullptr));
 		}
 
+		namespace
+		{
+			std::uint64_t
+			pool_number(const std::shared_ptr<detail::Context> &context,
+						const std::string &name, zpool_prop_t property)
+			{
+				std::unique_ptr<zpool_handle_t, decltype(&zpool_close)> handle(
+					zpool_open(context->handle(), name.c_str()), &zpool_close);
+				if (!handle)
+					detail::throw_libzfs_error(*context, name.c_str());
+				char value[ZFS_MAXPROPLEN];
+				if (zpool_get_prop(handle.get(), property, value, sizeof(value),
+								   nullptr, B_TRUE) != 0)
+					detail::throw_libzfs_error(*context,
+											   zpool_prop_to_name(property));
+				return zpool_get_prop_int(handle.get(), property, nullptr);
+			}
+		} // namespace
+
+		bool Pool::readonly() const
+		{
+			return pool_number(impl_->context(), name(), ZPOOL_PROP_READONLY) !=
+				   0;
+		}
+		std::uint64_t Pool::allocated_space() const
+		{
+			return pool_number(impl_->context(), name(), ZPOOL_PROP_ALLOCATED);
+		}
+		std::uint64_t Pool::free_space() const
+		{
+			return pool_number(impl_->context(), name(), ZPOOL_PROP_FREE);
+		}
+
 	PoolState
 		Pool::state() const
 		{

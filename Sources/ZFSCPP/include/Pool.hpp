@@ -136,6 +136,25 @@ namespace zfs {
 			 */
 			std::uint64_t guid() const;
 
+			/** @return Whether this pool was imported read-only.
+			 * @throws zfs::Error if the pool cannot be opened or
+			 * queried.
+			 */
+			bool readonly() const;
+
+			/** @return Physically allocated pool bytes.
+			 * @throws zfs::Error if the pool cannot be opened or
+			 * queried.
+			 */
+			std::uint64_t allocated_space() const;
+
+			/** @return Unallocated pool bytes, which may exceed
+			 * dataset available space.
+			 * @throws zfs::Error if the pool cannot be opened or
+			 * queried.
+			 */
+			std::uint64_t free_space() const;
+
 			/**
 			 * Return all native pool properties.
 			 *

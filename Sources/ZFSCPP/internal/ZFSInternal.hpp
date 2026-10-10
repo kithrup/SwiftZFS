@@ -5,7 +5,9 @@
 #include <libzfs.h>
 
 #include <memory>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace zfs {
@@ -174,10 +176,19 @@ namespace zfs {
 			 */
 			zfs_handle_t* open() const;
 
+			/** Query a numeric property with applicability/error
+			 * checking. */
+			std::uint64_t number(zfs_prop_t property) const;
+			/** Read GUID and creation together, opening a detailed
+			 * handle at most once. */
+			const std::pair<std::uint64_t, std::uint64_t> &identity() const;
+
 		private:
 			std::shared_ptr<detail::Context> context_;
 			std::string name_;
 			zfs_type_t type_ = ZFS_TYPE_INVALID;
+			mutable std::optional<std::pair<std::uint64_t, std::uint64_t>>
+				identity_;
 			std::vector<std::shared_ptr<Impl>> children_;
 	};
 

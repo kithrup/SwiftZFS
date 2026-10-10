@@ -192,6 +192,102 @@ extern "C" {
 			swiftzfs_error_t **error);
 
 	/* Pool and dataset properties. */
+	/** Creation time in whole seconds since the Unix epoch. Cached with the
+	 * GUID on first identity query.
+	 * @param dataset Borrowed dataset handle.
+	 * @param result Receives the value on success.
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t
+	swiftzfs_dataset_creation_time(const swiftzfs_dataset_t *dataset,
+								   uint64_t *result, swiftzfs_error_t **error);
+	/** Effective compression setting, including any algorithm level. Throws
+	 * for snapshots.
+	 * @param dataset Borrowed dataset handle.
+	 * @param result Receives the value on success. Caller frees the string
+	 * with swiftzfs_string_free().
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t
+	swiftzfs_dataset_copy_compression(const swiftzfs_dataset_t *dataset,
+									  char **result, swiftzfs_error_t **error);
+	/** Whether writes are disabled by the readonly property; always true
+	 * for snapshots.
+	 * @param dataset Borrowed dataset handle.
+	 * @param result Receives the value on success.
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t
+	swiftzfs_dataset_readonly(const swiftzfs_dataset_t *dataset, bool *result,
+							  swiftzfs_error_t **error);
+	/** ZFS used bytes, including descendants and reservations; for
+	 * snapshots, exclusively referenced bytes.
+	 * @param dataset Borrowed dataset handle.
+	 * @param result Receives the value on success.
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t
+	swiftzfs_dataset_allocated_space(const swiftzfs_dataset_t *dataset,
+									 uint64_t *result,
+									 swiftzfs_error_t **error);
+	/** ZFS available bytes, accounting for quotas and reservations. Throws
+	 * for snapshots.
+	 * @param dataset Borrowed dataset handle.
+	 * @param result Receives the value on success.
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t
+	swiftzfs_dataset_free_space(const swiftzfs_dataset_t *dataset,
+								uint64_t *result, swiftzfs_error_t **error);
+	/** Pool import readonly flag.
+	 * @param pool Borrowed pool handle.
+	 * @param result Receives the value on success.
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t swiftzfs_pool_readonly(const swiftzfs_pool_t *pool,
+											 bool *result,
+											 swiftzfs_error_t **error);
+	/** Physically allocated pool bytes.
+	 * @param pool Borrowed pool handle.
+	 * @param result Receives the value on success.
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t swiftzfs_pool_allocated_space(const swiftzfs_pool_t *pool,
+													uint64_t *result,
+													swiftzfs_error_t **error);
+	/** Unallocated pool bytes.
+	 * @param pool Borrowed pool handle.
+	 * @param result Receives the value on success.
+	 * @param error Optional output for an owned error; destroy with
+	 * swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions
+	 * escape.
+	 */
+	swiftzfs_status_t swiftzfs_pool_free_space(const swiftzfs_pool_t *pool,
+											   uint64_t *result,
+											   swiftzfs_error_t **error);
+
 	swiftzfs_status_t swiftzfs_pool_properties(
 			const swiftzfs_pool_t *pool,
 			swiftzfs_property_list_t **result,

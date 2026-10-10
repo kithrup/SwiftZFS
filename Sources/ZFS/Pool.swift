@@ -34,6 +34,45 @@ public final class Pool {
     }
   }
 
+  /// Whether the pool is read-only. Reflects the pool import flag.
+  ///
+  /// - Throws: `ZFSError` if OpenZFS cannot query the value.
+  public var isReadOnly: Bool {
+    get throws {
+      var value: Bool = false
+      var error: OpaquePointer?
+      let status = swiftzfs_pool_readonly(handle, &value, &error)
+      try checkSwiftZFSStatus(status, operation: "pool.isReadOnly", error: error)
+      return value
+    }
+  }
+
+  /// Allocated bytes. Physical pool allocation.
+  ///
+  /// - Throws: `ZFSError` if OpenZFS cannot query the value.
+  public var allocatedSpace: UInt64 {
+    get throws {
+      var value: UInt64 = 0
+      var error: OpaquePointer?
+      let status = swiftzfs_pool_allocated_space(handle, &value, &error)
+      try checkSwiftZFSStatus(status, operation: "pool.allocatedSpace", error: error)
+      return value
+    }
+  }
+
+  /// Unallocated pool bytes; may exceed dataset available space.
+  ///
+  /// - Throws: `ZFSError` if OpenZFS cannot query the value.
+  public var freeSpace: UInt64 {
+    get throws {
+      var value: UInt64 = 0
+      var error: OpaquePointer?
+      let status = swiftzfs_pool_free_space(handle, &value, &error)
+      try checkSwiftZFSStatus(status, operation: "pool.freeSpace", error: error)
+      return value
+    }
+  }
+
   deinit {
     swiftzfs_pool_destroy(handle)
   }

@@ -4,6 +4,38 @@ import XCTest
 @testable import ZFS
 
 final class ZFSTests: XCTestCase {
+  func testTypedProperties() throws {
+    let pools = try ZFS().pools()
+    guard let pool = pools.first else { throw XCTSkip("No imported pool") }
+    let dataset = try pool.dataset(named: pool.name)
+    XCTAssertEqual(dataset.type, .filesystem)
+    XCTAssertGreaterThan(dataset.creationTime.timeIntervalSince1970, 0)
+    XCTAssertLessThanOrEqual(dataset.creationTime, Date())
+    XCTAssertEqual(try dataset.compression, try dataset.property(named: "compression").value)
+    XCTAssertEqual(try dataset.isReadOnly, try dataset.property(named: "readonly").value == "on")
+    XCTAssertGreaterThan(try pool.allocatedSpace + pool.freeSpace, 0)
+    let readonly = try XCTUnwrap(pool.properties().first { $0.name == "readonly" })
+    XCTAssertEqual(try pool.isReadOnly, readonly.value == "on")
+    // Exercise byte-valued getters even on full pools and empty datasets.
+    _ = try dataset.allocatedSpace
+    _ = try dataset.freeSpace
+    let filesystem = try XCTUnwrap(dataset as? Filesystem)
+    XCTAssertFalse(try filesystem.mountpoint.isEmpty)
+    _ = try filesystem.isMounted
+
+    if let snapshot = try dataset.snapshots().first {
+      XCTAssertEqual(snapshot.type, .snapshot)
+      XCTAssertTrue(try snapshot.isReadOnly)
+      XCTAssertGreaterThan(snapshot.creationTime.timeIntervalSince1970, 0)
+      _ = try snapshot.allocatedSpace
+      XCTAssertThrowsError(try snapshot.freeSpace)
+      XCTAssertThrowsError(try snapshot.compression)
+    }
+    // Identity stays available after the discovering context has been destroyed.
+    XCTAssertEqual(dataset.type, .filesystem)
+    XCTAssertGreaterThan(dataset.guid, 0)
+  }
+
   func testPropertyValueType() {
     let property = Property(
       name: "compression",
@@ -91,6 +123,17 @@ final class ZFSTests: XCTestCase {
       byteCount += data.count
     }
     XCTAssertGreaterThan(byteCount, 0)
+
+    var nilBaseByteCount = 0
+    for try await data in try snapshot.send(from: nil) {
+      XCTAssertFalse(data.isEmpty)
+      nilBaseByteCount += data.count
+    }
+    XCTAssertEqual(nilBaseByteCount, byteCount)
+
+    let output = try FileHandle(forWritingTo: URL(fileURLWithPath: "/dev/null"))
+    defer { try? output.close() }
+    try snapshot.send(toFileDescriptor: output.fileDescriptor, from: nil)
 
     if let baseName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_SEND_BASE"] {
       let base = try XCTUnwrap(pool.dataset(named: baseName) as? Snapshot)

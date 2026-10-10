@@ -33,6 +33,41 @@ Filesystem and volume lookup constructs the pool hierarchy in one traversal.
 The returned dataset retains its immediate children, and `children()` walks
 that cached hierarchy. Snapshot lookup opens the named snapshot directly.
 
+## Read common properties
+
+```swift
+print(home.creationTime, home.type) // Date and DatasetType; no I/O
+print(try home.compression, try home.isReadOnly)
+print(try home.allocatedSpace, try home.freeSpace) // UInt64 bytes
+print(try pool.allocatedSpace, try pool.freeSpace, try pool.isReadOnly)
+if let filesystem = home as? Filesystem {
+  print(try filesystem.isMounted, try filesystem.mountpoint)
+}
+```
+
+Dataset `allocatedSpace` is ZFS `used`: it includes descendants and reservations,
+and a snapshot reports only exclusively referenced space. Dataset `freeSpace`
+is ZFS `available`, accounting for quotas and reservations. Pool values are
+physical `allocated` and `free` bytes; pool free space is not a promise of
+writable dataset capacity. Pool `isReadOnly` reports its import flag.
+
+Snapshots are always read-only; their compression and free-space queries throw
+`ZFSError` because those native properties do not apply. Mount state and
+mountpoint belong to `Filesystem`. Mountpoint preserves ZFS values such as
+`none` and `legacy`. Compression is a string so algorithm levels and future
+OpenZFS algorithms can be represented without losing information.
+
+Pools have no native creation, dataset type, mountpoint, or compression property.
+Open the pool's root dataset with `pool.dataset(named: pool.name)` to query
+those dataset values. Its creation time describes that dataset.
+
+C++ provides `Dataset::type()`, `creation_time()` (Unix seconds), `compression()`,
+`readonly()`, `allocated_space()`, and `free_space()`. Pool exposes `readonly()`,
+`allocated_space()`, and `free_space()`. Dataset identity is loaded lazily and
+cached together, preserving lightweight enumeration; Swift loads identity during
+construction and exposes immutable `let` properties. Mutable getters query
+OpenZFS and can fail. C++ creation-time access can throw on its first query.
+
 ## Send a snapshot
 
 Look up a snapshot and consume its send stream in bounded chunks:
@@ -45,7 +80,9 @@ for try await data in try snapshot.send() {
 }
 ```
 
-Use `try newer.send(from: older)` for an incremental stream. `SendOptions`
+Use `try newer.send(from: older)` for an incremental stream. Passing `nil` as
+the base is equivalent to `send()` and produces a full stream. The
+file-descriptor overload also accepts a nil base for a full send. `SendOptions`
 controls embedded data, large blocks, compression, and raw encrypted sends.
 For an existing output file descriptor, `try snapshot.send(toFileDescriptor: fd)`
 writes directly without a Swift read loop. The caller keeps ownership of `fd`.
@@ -67,6 +104,7 @@ OpenZFS finishes producing and the stream is drained.
 - ``Volume``
 - ``Snapshot``
 - ``DatasetCollection``
+- ``DatasetType``
 - ``SendStream``
 - ``SendOptions``
 

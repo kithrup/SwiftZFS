@@ -467,13 +467,64 @@ namespace zfs {
 			return impl_->name();
 		}
 
-	std::uint64_t
-		Dataset::guid() const
-		{
-			DatasetHandle handle(impl_->open());
-			return static_cast<std::uint64_t>(
-					zfs_prop_get_int(handle.get(), ZFS_PROP_GUID));
+	std::uint64_t Dataset::Impl::number(zfs_prop_t property) const
+	{
+		DatasetHandle handle(open());
+		std::uint64_t value = 0;
+		if (zfs_prop_get_numeric(handle.get(), property, &value, nullptr,
+								 nullptr, 0) != 0)
+			detail::throw_libzfs_error(*context_, zfs_prop_to_name(property));
+		return value;
+	}
+
+	const std::pair<std::uint64_t, std::uint64_t> &
+	Dataset::Impl::identity() const
+	{
+		if (!identity_) {
+			DatasetHandle handle(open());
+			std::uint64_t guid = 0, creation = 0;
+			if (zfs_prop_get_numeric(handle.get(), ZFS_PROP_GUID, &guid,
+									 nullptr, nullptr, 0) != 0 ||
+				zfs_prop_get_numeric(handle.get(), ZFS_PROP_CREATION, &creation,
+									 nullptr, nullptr, 0) != 0)
+				detail::throw_libzfs_error(*context_, "dataset identity");
+			identity_ = std::make_pair(guid, creation);
 		}
+		return *identity_;
+	}
+
+	std::uint64_t Dataset::guid() const { return impl_->identity().first; }
+	std::uint64_t Dataset::creation_time() const
+	{
+		return impl_->identity().second;
+	}
+	DatasetType Dataset::type() const noexcept
+	{
+		switch (impl_->type()) {
+		case ZFS_TYPE_VOLUME:
+			return DatasetType::volume;
+		case ZFS_TYPE_SNAPSHOT:
+			return DatasetType::snapshot;
+		default:
+			return DatasetType::filesystem;
+		}
+	}
+	std::string Dataset::compression() const
+	{
+		return property("compression").value();
+	}
+	bool Dataset::readonly() const
+	{
+		return is_snapshot() || impl_->number(ZFS_PROP_READONLY) != 0;
+	}
+	std::uint64_t Dataset::allocated_space() const
+	{
+		return impl_->number(ZFS_PROP_USED);
+	}
+	std::uint64_t Dataset::free_space() const
+	{
+		return impl_->number(ZFS_PROP_AVAILABLE);
+	}
 
 	std::vector<Property>
 		Dataset::properties() const

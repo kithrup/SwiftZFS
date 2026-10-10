@@ -1,5 +1,5 @@
 AC_PREREQ([2.69])
-AC_INIT([SwiftZFS], [0.1.2], [none])
+AC_INIT([SwiftZFS], [0.1.4], [none])
 AC_CONFIG_SRCDIR([Package.swift])
 AC_CANONICAL_HOST
 AC_PROG_CC

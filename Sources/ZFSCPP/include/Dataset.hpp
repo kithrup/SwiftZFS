@@ -13,6 +13,13 @@
 
 namespace zfs {
 
+	/** Concrete kind of a dataset, recorded during discovery. */
+	enum class DatasetType {
+		filesystem, ///< A mountable filesystem.
+		volume,		///< A block volume.
+		snapshot	///< A point-in-time snapshot.
+	};
+
 	/**
 	 * Property name/value pairs supplied when creating or modifying ZFS objects.
 	 *
@@ -90,6 +97,45 @@ namespace zfs {
 			 * @throws zfs::Error if the dataset cannot be opened or queried.
 			 */
 			std::uint64_t guid() const;
+
+			/** @return Recorded dataset kind. @throws Nothing. */
+			DatasetType type() const noexcept;
+			/** @return Creation time in whole seconds since the
+			 * Unix epoch. Cached with the GUID on first identity
+			 * query.
+			 * @throws zfs::Error if the dataset cannot be opened or
+			 * the property is unavailable.
+			 */
+			std::uint64_t creation_time() const;
+
+			/** @return Effective compression setting, including any
+			 * algorithm level. Throws for snapshots.
+			 * @throws zfs::Error if the dataset cannot be opened or
+			 * the property is unavailable.
+			 */
+			std::string compression() const;
+
+			/** @return Whether writes are disabled by the readonly
+			 * property; always true for snapshots.
+			 * @throws zfs::Error if the dataset cannot be opened or
+			 * the property is unavailable.
+			 */
+			bool readonly() const;
+
+			/** @return ZFS used bytes, including descendants and
+			 * reservations; for snapshots, exclusively referenced
+			 * bytes.
+			 * @throws zfs::Error if the dataset cannot be opened or
+			 * the property is unavailable.
+			 */
+			std::uint64_t allocated_space() const;
+
+			/** @return ZFS available bytes, accounting for quotas
+			 * and reservations. Throws for snapshots.
+			 * @throws zfs::Error if the dataset cannot be opened or
+			 * the property is unavailable.
+			 */
+			std::uint64_t free_space() const;
 
 			/**
 			 * Return all visible properties for this dataset.

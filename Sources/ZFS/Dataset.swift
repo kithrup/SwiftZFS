@@ -1,4 +1,15 @@
 import CZFS
+import Foundation
+
+/// The concrete kind of a ZFS dataset.
+public enum DatasetType: Hashable, Sendable {
+  /// A mountable filesystem.
+  case filesystem
+  /// A block volume.
+  case volume
+  /// A point-in-time snapshot.
+  case snapshot
+}
 
 /// The common base class for ZFS filesystems, volumes, and snapshots.
 public class Dataset {
@@ -9,6 +20,12 @@ public class Dataset {
 
   /// Dataset GUID.
   public let guid: UInt64
+
+  /// Immutable creation time recorded when this wrapper is constructed.
+  public let creationTime: Date
+
+  /// Concrete dataset kind, recorded during discovery.
+  public let type: DatasetType
 
   init(handle: OpaquePointer) throws {
     do {
@@ -25,12 +42,78 @@ public class Dataset {
       let guidStatus = swiftzfs_dataset_guid(handle, &guid, &error)
       try checkSwiftZFSStatus(guidStatus, operation: "dataset.guid", error: error)
 
+      var creation: UInt64 = 0
+      error = nil
+      let creationStatus = swiftzfs_dataset_creation_time(handle, &creation, &error)
+      try checkSwiftZFSStatus(creationStatus, operation: "dataset.creationTime", error: error)
+      switch swiftzfs_dataset_type(handle) {
+      case SWIFTZFS_DATASET_FILESYSTEM: self.type = .filesystem
+      case SWIFTZFS_DATASET_VOLUME: self.type = .volume
+      case SWIFTZFS_DATASET_SNAPSHOT: self.type = .snapshot
+      default: throw invariantError("dataset.type", "C shim returned an unknown dataset type")
+      }
+      self.creationTime = Date(timeIntervalSince1970: TimeInterval(creation))
       self.handle = handle
       self.name = name
       self.guid = guid
     } catch {
       swiftzfs_dataset_destroy(handle)
       throw error
+    }
+  }
+
+  /// Whether the dataset is read-only. Always true for snapshots.
+  ///
+  /// - Throws: `ZFSError` if OpenZFS cannot query the value.
+  public var isReadOnly: Bool {
+    get throws {
+      var value: Bool = false
+      var error: OpaquePointer?
+      let status = swiftzfs_dataset_readonly(handle, &value, &error)
+      try checkSwiftZFSStatus(status, operation: "dataset.isReadOnly", error: error)
+      return value
+    }
+  }
+
+  /// Allocated bytes. ZFS used includes descendants and reservations; snapshots report exclusively referenced bytes.
+  ///
+  /// - Throws: `ZFSError` if OpenZFS cannot query the value.
+  public var allocatedSpace: UInt64 {
+    get throws {
+      var value: UInt64 = 0
+      var error: OpaquePointer?
+      let status = swiftzfs_dataset_allocated_space(handle, &value, &error)
+      try checkSwiftZFSStatus(status, operation: "dataset.allocatedSpace", error: error)
+      return value
+    }
+  }
+
+  /// Available bytes after quotas and reservations. Throws `ZFSError` for snapshots.
+  ///
+  /// - Throws: `ZFSError` if OpenZFS cannot query the value.
+  public var freeSpace: UInt64 {
+    get throws {
+      var value: UInt64 = 0
+      var error: OpaquePointer?
+      let status = swiftzfs_dataset_free_space(handle, &value, &error)
+      try checkSwiftZFSStatus(status, operation: "dataset.freeSpace", error: error)
+      return value
+    }
+  }
+
+  /// Effective compression setting, including any algorithm level. Throws `ZFSError` for snapshots.
+  ///
+  /// - Throws: `ZFSError` if OpenZFS cannot query the value.
+  public var compression: String {
+    get throws {
+      var value: UnsafeMutablePointer<CChar>?
+      var error: OpaquePointer?
+      let status = swiftzfs_dataset_copy_compression(handle, &value, &error)
+      try checkSwiftZFSStatus(status, operation: "dataset.compression", error: error)
+      guard let value = takeCString(value) else {
+        throw invariantError("dataset.compression", "C shim returned no value")
+      }
+      return value
     }
   }
 
@@ -272,16 +355,17 @@ public final class Snapshot: Dataset {
     return SendStream(handle: stream)
   }
 
-  /// Start an incremental send ending at this snapshot.
+  /// Start a full or incremental send ending at this snapshot.
   ///
   /// - Parameters:
-  ///   - earlier: Earlier snapshot used as the incremental base.
+  ///   - earlier: Earlier snapshot used as the incremental base, or `nil` for a full send.
   ///   - options: Features to include in the stream.
   /// - Returns: A single-consumer stream of data chunks.
   /// - Throws: `ZFSError` if the stream cannot be started.
-  public func send(from earlier: Snapshot, options: SendOptions = SendOptions()) throws
+  public func send(from earlier: Snapshot?, options: SendOptions = SendOptions()) throws
     -> SendStream
   {
+    guard let earlier else { return try send(options: options) }
     var stream: OpaquePointer?
     var error: OpaquePointer?
     var cOptions = options.cValue
@@ -309,18 +393,21 @@ public final class Snapshot: Dataset {
     try checkSwiftZFSStatus(status, operation: "snapshot.send(toFileDescriptor:)", error: error)
   }
 
-  /// Write an incremental send directly to a caller-owned file descriptor.
+  /// Write a full or incremental send directly to a caller-owned file descriptor.
   ///
   /// - Parameters:
   ///   - fileDescriptor: Output descriptor, which remains open.
-  ///   - earlier: Earlier snapshot used as the incremental base.
+  ///   - earlier: Earlier snapshot used as the incremental base, or `nil` for a full send.
   ///   - options: Features to include in the stream.
   /// - Throws: `ZFSError` if the descriptor is invalid or send fails.
   public func send(
     toFileDescriptor fileDescriptor: Int32,
-    from earlier: Snapshot,
+    from earlier: Snapshot?,
     options: SendOptions = SendOptions()
   ) throws {
+    guard let earlier else {
+      return try send(toFileDescriptor: fileDescriptor, options: options)
+    }
     var error: OpaquePointer?
     var cOptions = options.cValue
     let status = swiftzfs_snapshot_send_incremental(
