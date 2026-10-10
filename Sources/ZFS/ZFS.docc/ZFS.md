@@ -68,6 +68,24 @@ cached together, preserving lightweight enumeration; Swift loads identity during
 construction and exposes immutable `let` properties. Mutable getters query
 OpenZFS and can fail. C++ creation-time access can throw on its first query.
 
+## Create a snapshot
+
+Create a snapshot of a filesystem or volume, optionally setting user properties:
+
+```swift
+let snapshot = try home.createSnapshot(
+  named: "before-upgrade",
+  properties: ["org.example:purpose": "Before system upgrade"]
+)
+print(snapshot.name) // tank/home@before-upgrade
+```
+
+Pass only the relative snapshot name. Creation is non-recursive and requires
+ZFS snapshot permissions, plus user-property permissions when setting properties.
+Omit `properties` when none are needed. Creating a snapshot from another snapshot
+is invalid. Failures, including an existing snapshot name, throw `ZFSError`.
+The snapshot persists on disk after the Swift object is released.
+
 ## Send a snapshot
 
 Look up a snapshot and consume its send stream in bounded chunks:

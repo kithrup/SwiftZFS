@@ -106,6 +106,80 @@ final class ZFSTests: XCTestCase {
     }
   }
 
+  func testSnapshotCreationRejectsInvalidInput() throws {
+    guard let pool = try ZFS().pools().first else { throw XCTSkip("No imported pool") }
+    let dataset = try pool.dataset(named: pool.name)
+    for name in ["", "invalid\0name", "invalid/name", "invalid@name"] {
+      XCTAssertThrowsError(try dataset.createSnapshot(named: name)) { error in
+        XCTAssertEqual((error as? ZFSError)?.code, .invalidArgument)
+      }
+    }
+    for properties in [
+      ["org.swiftzfs:invalid\0key": "value"],
+      ["org.swiftzfs:test": "invalid\0value"],
+      ["compression": "lz4"],
+    ] {
+      XCTAssertThrowsError(
+        try dataset.createSnapshot(named: "swiftzfs-invalid-\(UUID())", properties: properties)
+      ) { error in
+        XCTAssertEqual((error as? ZFSError)?.code, .invalidArgument)
+      }
+    }
+  }
+
+  /// Opt-in integration test: creates and removes only uniquely named test snapshots.
+  func testSnapshotCreation() throws {
+    try checkSnapshotCreation(environmentKey: "SWIFTZFS_TEST_CREATE_DATASET", properties: [:])
+  }
+
+  func testSnapshotCreationWithProperties() throws {
+    try checkSnapshotCreation(
+      environmentKey: "SWIFTZFS_TEST_CREATE_PROPERTIES_DATASET",
+      properties: ["org.swiftzfs:test": "snapshot café", "org.swiftzfs:empty": ""])
+  }
+
+  private func checkSnapshotCreation(environmentKey: String, properties: [String: String]) throws {
+    guard let datasetName = ProcessInfo.processInfo.environment[environmentKey]
+    else {
+      throw XCTSkip(
+        "Set \(environmentKey) to a test filesystem or volume with snapshot and, if needed, userprop permissions"
+      )
+    }
+    let poolName = String(datasetName.split(separator: "/", maxSplits: 1)[0])
+    let dataset = try ZFS().pool(named: poolName).dataset(named: datasetName)
+    let name = "swiftzfs-test-\(UUID())"
+    let snapshot = try dataset.createSnapshot(named: name, properties: properties)
+    defer {
+      // There is no Swift destruction API yet; remove exactly the snapshot we created.
+      let cleanup = Process()
+      cleanup.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+      cleanup.arguments = ["zfs", "destroy", snapshot.name]
+      do {
+        try cleanup.run()
+        cleanup.waitUntilExit()
+        XCTAssertEqual(cleanup.terminationStatus, 0, "Failed to remove \(snapshot.name)")
+      } catch {
+        XCTFail("Failed to remove \(snapshot.name): \(error)")
+      }
+    }
+    XCTAssertEqual(snapshot.name, "\(datasetName)@\(name)")
+    XCTAssertTrue(snapshot.isSnapshot)
+    XCTAssertEqual(snapshot.type, .snapshot)
+    XCTAssertGreaterThan(snapshot.guid, 0)
+    XCTAssertTrue(try snapshot.isReadOnly)
+    XCTAssertEqual(try dataset.snapshot(named: name).guid, snapshot.guid)
+    XCTAssertTrue(try dataset.snapshots().contains { $0.guid == snapshot.guid })
+    for (key, value) in properties {
+      XCTAssertEqual(try snapshot.property(named: key).value, value)
+    }
+    XCTAssertThrowsError(try dataset.createSnapshot(named: name)) { error in
+      XCTAssertTrue(error is ZFSError)
+    }
+    XCTAssertThrowsError(try snapshot.createSnapshot(named: "invalid")) { error in
+      XCTAssertEqual((error as? ZFSError)?.code, .invalidArgument)
+    }
+  }
+
   func testSnapshotSend() async throws {
     guard let snapshotName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_SEND_SNAPSHOT"]
     else {

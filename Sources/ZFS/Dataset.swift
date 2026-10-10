@@ -250,6 +250,74 @@ public class Dataset {
     return try Snapshot(handle: snapshotHandle)
   }
 
+  /// Create a snapshot of this filesystem or volume, without snapshotting descendants.
+  ///
+  /// - Parameters:
+  ///   - name: Snapshot name relative to this dataset, such as `before-upgrade`,
+  ///     without the dataset name or `@`.
+  ///   - properties: Optional ZFS user properties, such as `org.example:purpose`.
+  /// - Returns: The newly created snapshot, which retains its OpenZFS context.
+  /// - Throws: `ZFSError` for invalid input, an existing snapshot, insufficient
+  ///   permissions, or another OpenZFS failure. Snapshots cannot create snapshots.
+  ///
+  /// Creating the on-disk snapshot can succeed even if constructing its Swift
+  /// wrapper subsequently fails. Releasing the returned object does not delete it.
+  public func createSnapshot(named name: String, properties: [String: String] = [:]) throws
+    -> Snapshot
+  {
+    let operation = "dataset.createSnapshot(\(name))"
+    guard !name.isEmpty, !name.contains("/"), !name.contains("@") else {
+      throw ZFSError(
+        operation: operation,
+        code: .invalidArgument,
+        systemError: 0,
+        message: "snapshot name must be a nonempty relative name without '/' or '@'"
+      )
+    }
+    guard !name.utf8.contains(0),
+      !properties.contains(where: { $0.key.utf8.contains(0) || $0.value.utf8.contains(0) })
+    else {
+      throw ZFSError(
+        operation: operation,
+        code: .invalidArgument,
+        systemError: 0,
+        message: "snapshot name and properties must not contain NUL bytes"
+      )
+    }
+
+    // Store all property strings together so their pointers remain valid for the C call.
+    var strings: [CChar] = []
+    var offsets: [(name: Int, value: Int)] = []
+    for (key, value) in properties {
+      let keyOffset = strings.count
+      strings.append(contentsOf: key.utf8CString)
+      let valueOffset = strings.count
+      strings.append(contentsOf: value.utf8CString)
+      offsets.append((keyOffset, valueOffset))
+    }
+
+    var snapshotHandle: OpaquePointer?
+    var error: OpaquePointer?
+    let status = strings.withUnsafeBufferPointer { buffer in
+      let values = offsets.map { offset in
+        swiftzfs_property_value_t(
+          name: buffer.baseAddress!.advanced(by: offset.name),
+          value: buffer.baseAddress!.advanced(by: offset.value))
+      }
+      return values.withUnsafeBufferPointer { values in
+        name.withCString {
+          swiftzfs_dataset_create_snapshot(
+            handle, $0, values.baseAddress, values.count, &snapshotHandle, &error)
+        }
+      }
+    }
+    try checkSwiftZFSStatus(status, operation: operation, error: error)
+    guard let snapshotHandle else {
+      throw invariantError(operation, "C shim returned no snapshot")
+    }
+    return try Snapshot(handle: snapshotHandle)
+  }
+
   static func takeAll(from list: OpaquePointer) throws -> [Dataset] {
     let count = swiftzfs_dataset_list_count(list)
     var result: [Dataset] = []
