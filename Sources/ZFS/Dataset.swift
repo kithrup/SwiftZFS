@@ -13,10 +13,16 @@ public enum DatasetType: Hashable, Sendable {
 
 // Scoped to one conversion so shared ancestors are decoded only once.
 final class DatasetDiscovery {
+  let pool: Pool
   var datasets: [String: Dataset] = [:]
 
-  init(parent: Dataset? = nil) {
-    if let parent { datasets[parent.name] = parent }
+  init(pool: Pool) {
+    self.pool = pool
+  }
+
+  convenience init(parent: Dataset) {
+    self.init(pool: parent.pool)
+    datasets[parent.name] = parent
   }
 }
 
@@ -26,6 +32,12 @@ public class Dataset {
 
   /// Full ZFS dataset name.
   public let name: String
+
+  /// The pool containing this dataset, including for the root dataset and snapshots.
+  ///
+  /// Retains the original pool wrapper for this dataset's lifetime. Access is
+  /// non-throwing and performs no OpenZFS I/O.
+  public let pool: Pool
 
   /// Full ZFS path, including the pool name and any `@snapshot` suffix.
   /// This is the dataset name, rather than an operating-system mountpoint.
@@ -45,7 +57,7 @@ public class Dataset {
   /// Concrete dataset kind, recorded during discovery.
   public let type: DatasetType
 
-  init(handle: OpaquePointer, discovery: DatasetDiscovery = DatasetDiscovery()) throws {
+  init(handle: OpaquePointer, discovery: DatasetDiscovery) throws {
     do {
       var pointer: UnsafeMutablePointer<CChar>?
       var error: OpaquePointer?
@@ -78,6 +90,7 @@ public class Dataset {
       self.creationTime = Date(timeIntervalSince1970: TimeInterval(creation))
       self.handle = handle
       self.name = name
+      self.pool = discovery.pool
       self.guid = guid
     } catch {
       swiftzfs_dataset_destroy(handle)
@@ -343,7 +356,7 @@ public class Dataset {
   }
 
   static func takeAll(
-    from list: OpaquePointer, discovery: DatasetDiscovery = DatasetDiscovery()
+    from list: OpaquePointer, discovery: DatasetDiscovery
   ) throws -> [Dataset] {
     let count = swiftzfs_dataset_list_count(list)
     var result: [Dataset] = []
@@ -361,7 +374,7 @@ public class Dataset {
   }
 
   static func make(
-    handle: OpaquePointer, discovery: DatasetDiscovery = DatasetDiscovery()
+    handle: OpaquePointer, discovery: DatasetDiscovery
   ) throws -> Dataset {
     var pointer: UnsafeMutablePointer<CChar>?
     var error: OpaquePointer?

@@ -14,6 +14,7 @@ let pool = try zfs.pool(named: "tank")
 let home = try pool.dataset(named: "tank/home")
 
 print(home.name)
+print(home.pool.name) // tank; non-throwing, with no OpenZFS I/O
 for child in try home.children() {
   print(child.name)
 }
@@ -24,6 +25,10 @@ can identify snapshots, such as `tank/home@before-upgrade`. The lookup returns
 a ``Dataset``; use `isFilesystem`, `isVolume`, and `isSnapshot` to inspect its
 kind, or cast it to ``Filesystem``, ``Volume``, or ``Snapshot`` for type-specific
 operations.
+
+Every dataset exposes its containing pool as `dataset.pool`, including root
+datasets and snapshots. It retains the original `Pool` instance, keeping pool
+operations available even after the discovering `ZFS` context goes away.
 
 Lookup and other operations that access OpenZFS throw ``ZFSError``. A missing
 dataset has code `ZFSError.Code.notFound`; a name outside the pool has code

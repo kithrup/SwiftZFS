@@ -120,7 +120,7 @@ public final class Pool {
     guard let datasetHandle else {
       throw invariantError("pool.dataset(\(name))", "C shim returned no dataset")
     }
-    return try Dataset.make(handle: datasetHandle)
+    return try Dataset.make(handle: datasetHandle, discovery: DatasetDiscovery(pool: self))
   }
 
   /// Datasets immediately below the pool root dataset.
@@ -135,7 +135,7 @@ public final class Pool {
       throw invariantError("pool.children", "C shim returned no dataset list")
     }
     defer { swiftzfs_dataset_list_destroy(list) }
-    return try Dataset.takeAll(from: list)
+    return try Dataset.takeAll(from: list, discovery: DatasetDiscovery(pool: self))
   }
 
   /// All descendants below the pool root dataset, in depth-first pre-order.
@@ -159,7 +159,7 @@ public final class Pool {
     }
     defer { swiftzfs_dataset_list_destroy(list) }
 
-    let discovery = DatasetDiscovery()
+    let discovery = DatasetDiscovery(pool: self)
     let count = swiftzfs_dataset_list_count(list)
     var filesystems: [Filesystem] = []
     var volumes: [Volume] = []
