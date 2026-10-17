@@ -160,6 +160,9 @@ namespace zfs {
 			/** Return the OpenZFS dataset type recorded during enumeration. */
 			zfs_type_t type() const noexcept;
 
+			/** Weak upward link; wrappers retain the hierarchy root. */
+			std::weak_ptr<Impl> parent;
+
 			/** Add one immediate child discovered during bulk enumeration. */
 			void add_child(const std::shared_ptr<Impl>& child);
 

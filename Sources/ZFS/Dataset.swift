@@ -11,12 +11,30 @@ public enum DatasetType: Hashable, Sendable {
   case snapshot
 }
 
+// Scoped to one conversion so shared ancestors are decoded only once.
+final class DatasetDiscovery {
+  var datasets: [String: Dataset] = [:]
+
+  init(parent: Dataset? = nil) {
+    if let parent { datasets[parent.name] = parent }
+  }
+}
+
 /// The common base class for ZFS filesystems, volumes, and snapshots.
 public class Dataset {
   let handle: OpaquePointer
 
   /// Full ZFS dataset name.
   public let name: String
+
+  /// Full ZFS path, including the pool name and any `@snapshot` suffix.
+  /// This is the dataset name, rather than an operating-system mountpoint.
+  public var path: String { name }
+
+  /// Immediate parent, or `nil` for the pool root dataset.
+  /// A snapshot's parent is the filesystem or volume it snapshots.
+  /// Retained so the parent remains available for this object's lifetime.
+  public let parent: Dataset?
 
   /// Dataset GUID.
   public let guid: UInt64
@@ -27,7 +45,7 @@ public class Dataset {
   /// Concrete dataset kind, recorded during discovery.
   public let type: DatasetType
 
-  init(handle: OpaquePointer) throws {
+  init(handle: OpaquePointer, discovery: DatasetDiscovery = DatasetDiscovery()) throws {
     do {
       var pointer: UnsafeMutablePointer<CChar>?
       var error: OpaquePointer?
@@ -52,6 +70,11 @@ public class Dataset {
       case SWIFTZFS_DATASET_SNAPSHOT: self.type = .snapshot
       default: throw invariantError("dataset.type", "C shim returned an unknown dataset type")
       }
+      var parentHandle: OpaquePointer?
+      error = nil
+      let parentStatus = swiftzfs_dataset_parent(handle, &parentHandle, &error)
+      try checkSwiftZFSStatus(parentStatus, operation: "dataset.parent", error: error)
+      self.parent = try parentHandle.map { try Dataset.make(handle: $0, discovery: discovery) }
       self.creationTime = Date(timeIntervalSince1970: TimeInterval(creation))
       self.handle = handle
       self.name = name
@@ -184,7 +207,7 @@ public class Dataset {
       throw invariantError("dataset.children", "C shim returned no dataset list")
     }
     defer { swiftzfs_dataset_list_destroy(list) }
-    return try Dataset.takeAll(from: list)
+    return try Dataset.takeAll(from: list, discovery: DatasetDiscovery(parent: self))
   }
 
   /// All descendants below this dataset, in depth-first pre-order.
@@ -208,13 +231,14 @@ public class Dataset {
     }
     defer { swiftzfs_dataset_list_destroy(list) }
 
+    let discovery = DatasetDiscovery(parent: self)
     let count = swiftzfs_dataset_list_count(list)
     var result: [Snapshot] = []
     result.reserveCapacity(count)
 
     for index in 0..<count {
       guard let handle = swiftzfs_dataset_list_take_at(list, index) else { continue }
-      let dataset = try Dataset.make(handle: handle)
+      let dataset = try Dataset.make(handle: handle, discovery: discovery)
       guard let snapshot = dataset as? Snapshot else {
         throw invariantError("dataset.snapshots", "C shim returned a non-snapshot object")
       }
@@ -247,7 +271,7 @@ public class Dataset {
     guard let snapshotHandle else {
       throw invariantError("dataset.snapshot(\(name))", "C shim returned no snapshot")
     }
-    return try Snapshot(handle: snapshotHandle)
+    return try Snapshot(handle: snapshotHandle, discovery: DatasetDiscovery(parent: self))
   }
 
   /// Create a snapshot of this filesystem or volume, without snapshotting descendants.
@@ -315,10 +339,12 @@ public class Dataset {
     guard let snapshotHandle else {
       throw invariantError(operation, "C shim returned no snapshot")
     }
-    return try Snapshot(handle: snapshotHandle)
+    return try Snapshot(handle: snapshotHandle, discovery: DatasetDiscovery(parent: self))
   }
 
-  static func takeAll(from list: OpaquePointer) throws -> [Dataset] {
+  static func takeAll(
+    from list: OpaquePointer, discovery: DatasetDiscovery = DatasetDiscovery()
+  ) throws -> [Dataset] {
     let count = swiftzfs_dataset_list_count(list)
     var result: [Dataset] = []
     result.reserveCapacity(count)
@@ -326,7 +352,7 @@ public class Dataset {
     for index in 0..<count {
       guard let handle = swiftzfs_dataset_list_take_at(list, index) else { continue }
       do {
-        result.append(try Dataset.make(handle: handle))
+        result.append(try Dataset.make(handle: handle, discovery: discovery))
       } catch {
         throw error
       }
@@ -334,14 +360,37 @@ public class Dataset {
     return result
   }
 
-  static func make(handle: OpaquePointer) throws -> Dataset {
-    let type = swiftzfs_dataset_type(handle)
-    if type == SWIFTZFS_DATASET_FILESYSTEM { return try Filesystem(handle: handle) }
-    if type == SWIFTZFS_DATASET_VOLUME { return try Volume(handle: handle) }
-    if type == SWIFTZFS_DATASET_SNAPSHOT { return try Snapshot(handle: handle) }
+  static func make(
+    handle: OpaquePointer, discovery: DatasetDiscovery = DatasetDiscovery()
+  ) throws -> Dataset {
+    var pointer: UnsafeMutablePointer<CChar>?
+    var error: OpaquePointer?
+    let status = swiftzfs_dataset_copy_name(handle, &pointer, &error)
+    do {
+      try checkSwiftZFSStatus(status, operation: "dataset.name", error: error)
+    } catch {
+      swiftzfs_dataset_destroy(handle)
+      throw error
+    }
+    if let name = takeCString(pointer), let existing = discovery.datasets[name] {
+      swiftzfs_dataset_destroy(handle)
+      return existing
+    }
 
-    swiftzfs_dataset_destroy(handle)
-    throw invariantError("dataset.type", "C shim returned an unknown dataset type")
+    let dataset: Dataset
+    switch swiftzfs_dataset_type(handle) {
+    case SWIFTZFS_DATASET_FILESYSTEM:
+      dataset = try Filesystem(handle: handle, discovery: discovery)
+    case SWIFTZFS_DATASET_VOLUME:
+      dataset = try Volume(handle: handle, discovery: discovery)
+    case SWIFTZFS_DATASET_SNAPSHOT:
+      dataset = try Snapshot(handle: handle, discovery: discovery)
+    default:
+      swiftzfs_dataset_destroy(handle)
+      throw invariantError("dataset.type", "C shim returned an unknown dataset type")
+    }
+    discovery.datasets[dataset.name] = dataset
+    return dataset
   }
 }
 

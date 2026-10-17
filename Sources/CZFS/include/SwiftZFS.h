@@ -191,6 +191,30 @@ extern "C" {
 			uint64_t *result,
 			swiftzfs_error_t **error);
 
+	/**
+	 * Copy the cached full ZFS path (not an OS mountpoint).
+	 * @param dataset Borrowed dataset handle.
+	 * @param result Receives an owned string; free with swiftzfs_string_free().
+	 * @param error Optional owned error output.
+	 * @return SWIFTZFS_OK on success, or an error status. No exceptions escape.
+	 */
+	swiftzfs_status_t swiftzfs_dataset_copy_path(
+		const swiftzfs_dataset_t* dataset, char** result,
+		swiftzfs_error_t** error);
+
+	/**
+	 * Obtain the cached parent; a snapshot's parent is its source dataset.
+	 * @param dataset Borrowed dataset handle.
+	 * @param result Receives an owned handle, or NULL for the pool root.
+	 * Destroy a non-NULL result with swiftzfs_dataset_destroy(). The parent
+	 * remains valid after the input handle is destroyed.
+	 * @param error Optional owned error output.
+	 * @return SWIFTZFS_OK on success (including root), or an error status.
+	 * No exceptions escape.
+	 */
+	swiftzfs_status_t swiftzfs_dataset_parent(const swiftzfs_dataset_t* dataset,
+		swiftzfs_dataset_t** result, swiftzfs_error_t** error);
+
 	/* Pool and dataset properties. */
 	/** Creation time in whole seconds since the Unix epoch. Cached with the
 	 * GUID on first identity query.

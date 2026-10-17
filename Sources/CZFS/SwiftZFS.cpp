@@ -874,6 +874,35 @@ swiftzfs_dataset_copy_name(const swiftzfs_dataset_t *dataset, char **result,
 	}
 }
 
+extern "C" swiftzfs_status_t
+swiftzfs_dataset_copy_path(
+	const swiftzfs_dataset_t* dataset, char** result, swiftzfs_error_t** error)
+{
+	return swiftzfs_dataset_copy_name(dataset, result, error);
+}
+
+extern "C" swiftzfs_status_t
+swiftzfs_dataset_parent(const swiftzfs_dataset_t* dataset,
+	swiftzfs_dataset_t** result, swiftzfs_error_t** error)
+{
+	clear_error(error);
+	if (result != nullptr)
+		*result = nullptr;
+	if (dataset == nullptr || dataset->impl == nullptr || result == nullptr)
+		return invalid_argument(error, "dataset and result must not be null");
+	try
+	{
+		auto parent = dataset->impl->parent();
+		if (parent)
+			*result = new swiftzfs_dataset(std::move(parent));
+		return SWIFTZFS_OK;
+	}
+	catch (...)
+	{
+		return translate_current_exception(error);
+	}
+}
+
 	extern "C" swiftzfs_status_t
 swiftzfs_dataset_guid(const swiftzfs_dataset_t *dataset, uint64_t *result,
 		swiftzfs_error_t **error)

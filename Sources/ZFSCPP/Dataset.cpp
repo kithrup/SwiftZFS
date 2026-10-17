@@ -434,9 +434,29 @@ namespace zfs {
 			return !(lhs == rhs);
 		}
 
-	Dataset::Dataset(std::shared_ptr<Impl> impl) noexcept
-		: impl_(std::move(impl))
+		Dataset::Dataset(std::shared_ptr<Impl> impl) noexcept
+			: impl_(std::move(impl))
+			, hierarchy_root_(impl_)
 		{
+			while (auto parent = hierarchy_root_->parent.lock())
+				hierarchy_root_ = std::move(parent);
+		}
+
+		const std::string&
+		Dataset::path() const noexcept
+		{
+			return impl_->name();
+		}
+
+		std::unique_ptr<Dataset>
+		Dataset::parent() const
+		{
+			auto parent = impl_->parent.lock();
+			if (!parent)
+				return nullptr;
+			if (parent->type() == ZFS_TYPE_VOLUME)
+				return std::unique_ptr<Dataset>(new Volume(std::move(parent)));
+			return std::unique_ptr<Dataset>(new Filesystem(std::move(parent)));
 		}
 
 	Dataset::Dataset(Dataset&&) noexcept = default;
@@ -622,9 +642,10 @@ namespace zfs {
 
 			struct IteratorState {
 				std::shared_ptr<detail::Context> context;
+				std::shared_ptr<Dataset::Impl> parent;
 				std::vector<Snapshot>* snapshots;
 				std::exception_ptr* exception;
-			} state { impl_->context(), &result, &exception };
+			} state { impl_->context(), impl_, &result, &exception };
 
 			auto callback = [](zfs_handle_t* handle, void* arg) -> int {
 				auto* state = static_cast<IteratorState*>(arg);
@@ -634,6 +655,7 @@ namespace zfs {
 					if (snapshot_name != nullptr) {
 						auto snapshot_impl = std::make_shared<Dataset::Impl>(
 							state->context, snapshot_name, ZFS_TYPE_SNAPSHOT);
+						snapshot_impl->parent = state->parent;
 						state->snapshots->push_back(Snapshot(snapshot_impl));
 					}
 					zfs_close(handle);
@@ -683,6 +705,7 @@ namespace zfs {
 
 			auto snapshot_impl = std::make_shared<Dataset::Impl>(
 					impl_->context(), full_name, ZFS_TYPE_SNAPSHOT);
+			snapshot_impl->parent = impl_;
 			return Snapshot(std::move(snapshot_impl));
 		}
 
@@ -720,6 +743,7 @@ namespace zfs {
 
 			auto snapshot_impl = std::make_shared<Dataset::Impl>(
 					impl_->context(), full_name, ZFS_TYPE_SNAPSHOT);
+			snapshot_impl->parent = impl_;
 			return Snapshot(std::move(snapshot_impl));
 		}
 
@@ -965,8 +989,15 @@ namespace zfs {
 
 					const auto parent = by_name.find(dataset_name.substr(0, slash));
 					if (parent != by_name.end() && parent->second != dataset)
+					{
 						parent->second->add_child(dataset);
+						dataset->parent = parent->second;
+					}
 				}
+				for (auto& filesystem : result.filesystems_)
+					filesystem.hierarchy_root_ = root_impl;
+				for (auto& volume : result.volumes_)
+					volume.hierarchy_root_ = root_impl;
 			} catch (...) {
 				if (root != nullptr)
 					zfs_close(root);
@@ -1005,19 +1036,10 @@ namespace zfs {
 						"dataset not found: " + dataset_name);
 			}
 
-			auto context = impl_->context();
-			DatasetHandle handle(zfs_open(context->handle(), dataset_name.c_str(),
-					ZFS_TYPE_SNAPSHOT));
-			if (handle.get() == nullptr) {
-				if (libzfs_errno(context->handle()) == EZFS_NOENT)
-					throw Error(Error::Code::not_found, 0,
-							"dataset not found: " + dataset_name);
-				detail::throw_libzfs_error(*context, dataset_name.c_str());
-			}
-
-			auto dataset_impl = std::make_shared<Dataset::Impl>(
-					context, dataset_name, ZFS_TYPE_SNAPSHOT);
-			return std::unique_ptr<Dataset>(new Snapshot(std::move(dataset_impl)));
+			const auto separator = dataset_name.find('@');
+			auto source = dataset(dataset_name.substr(0, separator));
+			return std::make_unique<Snapshot>(
+				source->snapshot(dataset_name.substr(separator + 1)));
 		}
 
 	std::vector<Filesystem>

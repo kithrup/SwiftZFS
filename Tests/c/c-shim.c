@@ -1,9 +1,11 @@
 #include "SwiftZFS.h"
 
+#include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
-	static void
-print_error(const char *operation, swiftzfs_error_t *error)
+static void
+print_error(const char* operation, swiftzfs_error_t* error)
 {
 	fprintf(stderr, "%s: %s", operation,
 			error != NULL ? swiftzfs_error_message(error) : "unknown error");
@@ -48,6 +50,36 @@ main(void)
 			swiftzfs_context_destroy(context);
 			return 1;
 		}
+
+		swiftzfs_dataset_list_t* datasets = NULL;
+		assert(swiftzfs_pool_datasets(pool, &datasets, &error) == SWIFTZFS_OK);
+		for (size_t j = 0; j < swiftzfs_dataset_list_count(datasets); ++j)
+		{
+			swiftzfs_dataset_t* dataset = swiftzfs_dataset_list_take_at(datasets, j);
+			swiftzfs_dataset_t* parent = NULL;
+			char* path = NULL;
+			assert(swiftzfs_dataset_copy_path(dataset, &path, &error) == SWIFTZFS_OK);
+			assert(swiftzfs_dataset_parent(dataset, &parent, &error) == SWIFTZFS_OK);
+			swiftzfs_dataset_destroy(dataset);
+			const char* slash = strrchr(path, '/');
+			if (slash == NULL)
+			{
+				assert(parent == NULL);
+				assert(strcmp(path, name) == 0);
+			}
+			else
+			{
+				char* parent_path = NULL;
+				assert(parent != NULL);
+				assert(swiftzfs_dataset_copy_path(parent, &parent_path, &error) == SWIFTZFS_OK);
+				assert(strlen(parent_path) == (size_t)(slash - path));
+				assert(strncmp(parent_path, path, strlen(parent_path)) == 0);
+				swiftzfs_string_free(parent_path);
+			}
+			swiftzfs_dataset_destroy(parent);
+			swiftzfs_string_free(path);
+		}
+		swiftzfs_dataset_list_destroy(datasets);
 
 		printf("%s\n", name);
 		swiftzfs_string_free(name);

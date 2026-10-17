@@ -92,7 +92,11 @@ cpp-install: $(CPP_LIBRARY) swiftzfs-cpp.pc
 	$(INSTALL) -m 644 $(CPP_LIBRARY) $(DESTDIR)$(libdir)/
 	$(INSTALL) -m 644 swiftzfs-cpp.pc $(DESTDIR)$(libdir)/pkgconfig/
 
-cpp-test: $(CPP_LIST_POOLS)
+$(CPP_BUILD_DIR)/dataset-hierarchy-test: Tests/cpp/dataset-hierarchy.cpp $(CPP_LIBRARY) $(CPP_PUBLIC_HEADERS) | $(CPP_BUILD_DIR)
+	$(CXX) $(CXXFLAGS_LOCAL) $(CPPFLAGS_LOCAL) $< $(CPP_LIBRARY) -lzfs -lzfs_core -lzutil -lnvpair -pthread -lm $(SWIFTZFS_LINKER_FLAGS) -o $@
+
+cpp-test: $(CPP_LIST_POOLS) $(CPP_BUILD_DIR)/dataset-hierarchy-test
+	$(CPP_BUILD_DIR)/dataset-hierarchy-test
 	$(CPP_LIST_POOLS) >/dev/null
 
 cpp-run: $(CPP_LIST_POOLS)

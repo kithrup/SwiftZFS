@@ -4,6 +4,40 @@ import XCTest
 @testable import ZFS
 
 final class ZFSTests: XCTestCase {
+  func testDatasetParentsAndPaths() throws {
+    guard let pool = try ZFS().pools().first else { throw XCTSkip("No imported pool") }
+    let datasets = try pool.datasets()
+    let root = try XCTUnwrap(datasets.filesystems.first { $0.name == pool.name })
+    XCTAssertNil(root.parent)
+    var seen = Set<String>()
+    func check(_ dataset: Dataset) throws {
+      XCTAssertTrue(seen.insert(dataset.path).inserted)
+      XCTAssertEqual(dataset.path, dataset.name)
+      if dataset.name != pool.name {
+        let expected = String(dataset.name.prefix(upTo: dataset.name.lastIndex(of: "/")!))
+        XCTAssertEqual(dataset.parent?.path, expected)
+      }
+      for child in try dataset.children() {
+        XCTAssertTrue(child.parent === dataset)
+        XCTAssertNotEqual(child.path, dataset.path)
+      }
+    }
+    for dataset in datasets.filesystems { try check(dataset) }
+    for dataset in datasets.volumes { try check(dataset) }
+    // A parent chain remains complete when the pool and collection go away.
+    let retained = try { () -> Dataset in
+      let pool = try ZFS().pool(named: pool.name)
+      return try pool.descendants().last ?? pool.dataset(named: pool.name)
+    }()
+    var ancestor: Dataset? = retained
+    var ancestors = Set<String>()
+    while let current = ancestor {
+      XCTAssertTrue(ancestors.insert(current.path).inserted)
+      ancestor = current.parent
+    }
+    XCTAssertTrue(ancestors.contains(pool.name))
+  }
+
   func testTypedProperties() throws {
     let pools = try ZFS().pools()
     guard let pool = pools.first else { throw XCTSkip("No imported pool") }
@@ -24,6 +58,8 @@ final class ZFSTests: XCTestCase {
     _ = try filesystem.isMounted
 
     if let snapshot = try dataset.snapshots().first {
+      XCTAssertTrue(snapshot.parent === dataset)
+      XCTAssertEqual(snapshot.path, snapshot.name)
       XCTAssertEqual(snapshot.type, .snapshot)
       XCTAssertTrue(try snapshot.isReadOnly)
       XCTAssertGreaterThan(snapshot.creationTime.timeIntervalSince1970, 0)
@@ -78,10 +114,12 @@ final class ZFSTests: XCTestCase {
     let snapshot = try dataset.snapshot(named: snapshotName)
     XCTAssertEqual(snapshot.name, "\(datasetName)@\(snapshotName)")
     XCTAssertTrue(snapshot.isSnapshot)
+    XCTAssertTrue(snapshot.parent === dataset)
 
     let openedSnapshot = try pool.dataset(named: snapshot.name)
     XCTAssertEqual(openedSnapshot.name, snapshot.name)
     XCTAssertTrue(openedSnapshot.isSnapshot)
+    XCTAssertEqual(openedSnapshot.parent?.path, dataset.path)
 
     XCTAssertThrowsError(try dataset.snapshot(named: "swiftzfs-missing-\(UUID())")) { error in
       guard let error = error as? ZFSError else {
@@ -165,6 +203,7 @@ final class ZFSTests: XCTestCase {
     XCTAssertEqual(snapshot.name, "\(datasetName)@\(name)")
     XCTAssertTrue(snapshot.isSnapshot)
     XCTAssertEqual(snapshot.type, .snapshot)
+    XCTAssertTrue(snapshot.parent === dataset)
     XCTAssertGreaterThan(snapshot.guid, 0)
     XCTAssertTrue(try snapshot.isReadOnly)
     XCTAssertEqual(try dataset.snapshot(named: name).guid, snapshot.guid)

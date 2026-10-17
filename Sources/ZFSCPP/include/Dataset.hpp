@@ -91,6 +91,23 @@ namespace zfs {
 			std::string name() const;
 
 			/**
+			 * Return the full ZFS path, including the pool and snapshot suffix.
+			 * @return Stored dataset name; this is not an OS mountpoint.
+			 * @throws Nothing.
+			 */
+			const std::string& path() const noexcept;
+
+			/**
+			 * Return the immediate parent, or nullptr for the pool root.
+			 * For snapshots, returns the filesystem or volume being
+			 * snapshotted. The returned wrapper retains the discovered
+			 * hierarchy and context.
+			 * @return Owned parent wrapper, or nullptr for the root.
+			 * @throws std::bad_alloc if allocating the wrapper fails.
+			 */
+			std::unique_ptr<Dataset> parent() const;
+
+			/**
 			 * Return the dataset GUID.
 			 *
 			 * @return The dataset's ZFS GUID property.
@@ -264,6 +281,8 @@ namespace zfs {
 			explicit Dataset(std::shared_ptr<Impl> impl) noexcept;
 
 			std::shared_ptr<Impl> impl_;
+			// Retain ancestors without introducing cycles in Impl links.
+			std::shared_ptr<Impl> hierarchy_root_;
 	};
 
 	/**

@@ -159,13 +159,14 @@ public final class Pool {
     }
     defer { swiftzfs_dataset_list_destroy(list) }
 
+    let discovery = DatasetDiscovery()
     let count = swiftzfs_dataset_list_count(list)
     var filesystems: [Filesystem] = []
     var volumes: [Volume] = []
 
     for index in 0..<count {
       guard let handle = swiftzfs_dataset_list_take_at(list, index) else { continue }
-      let dataset = try Dataset.make(handle: handle)
+      let dataset = try Dataset.make(handle: handle, discovery: discovery)
       if let filesystem = dataset as? Filesystem {
         filesystems.append(filesystem)
       } else if let volume = dataset as? Volume {
