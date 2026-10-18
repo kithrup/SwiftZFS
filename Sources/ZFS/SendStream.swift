@@ -54,10 +54,23 @@ public final class SendStream: AsyncSequence {
   /// A chunk of send stream data.
   public typealias Element = Data
 
+  /// Pool containing the snapshot being sent, retained for the stream lifetime.
+  public let pool: Pool
+
+  /// Incremental base snapshot, or `nil` for a full send.
+  /// Retained even after the stream finishes.
+  public let from: Snapshot?
+
+  /// Target snapshot being sent, retained even after the stream finishes.
+  public let snapshot: Snapshot
+
   private var handle: OpaquePointer?
 
-  init(handle: OpaquePointer) {
+  init(handle: OpaquePointer, snapshot: Snapshot, from: Snapshot?) {
     self.handle = handle
+    self.pool = snapshot.pool
+    self.from = from
+    self.snapshot = snapshot
   }
 
   deinit {

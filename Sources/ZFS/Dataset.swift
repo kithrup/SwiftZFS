@@ -256,7 +256,7 @@ public class Dataset: Hashable {
     return result
   }
 
-  /// Snapshots belonging to this dataset.
+  /// Snapshots belonging to this dataset, oldest first by creation transaction.
   public func snapshots() throws -> [Snapshot] {
     var list: OpaquePointer?
     var error: OpaquePointer?
@@ -505,7 +505,7 @@ public final class Snapshot: Dataset {
     guard let stream else {
       throw invariantError("snapshot.send", "C shim returned no send stream")
     }
-    return SendStream(handle: stream)
+    return SendStream(handle: stream, snapshot: self, from: nil)
   }
 
   /// Start a full or incremental send ending at this snapshot.
@@ -528,7 +528,7 @@ public final class Snapshot: Dataset {
     guard let stream else {
       throw invariantError("snapshot.send(from:)", "C shim returned no send stream")
     }
-    return SendStream(handle: stream)
+    return SendStream(handle: stream, snapshot: self, from: earlier)
   }
 
   /// Write a full send directly to a caller-owned file descriptor.

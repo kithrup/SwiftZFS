@@ -209,16 +209,19 @@ namespace zfs {
 			virtual bool is_snapshot() const noexcept;
 
 			/**
-			 * List snapshots owned by this dataset.
+			 * List snapshots owned by this dataset in creation
+			 * transaction order.
 			 *
-			 * Filesystems and volumes use this implementation.  Snapshot overrides it
-			 * and returns an empty collection because snapshots cannot contain
-			 * snapshots.
+			 * Filesystems and volumes use this implementation.
+			 * Snapshot overrides it and returns an empty collection
+			 * because snapshots cannot contain snapshots.
 			 *
-			 * @return Snapshot objects belonging directly to this dataset.
-			 * @throws zfs::Error if the dataset cannot be opened or snapshot iteration
-			 *         fails.
-			 * @throws std::bad_alloc if result storage cannot be allocated.
+			 * @return Snapshot objects belonging directly to this
+			 * dataset.
+			 * @throws zfs::Error if the dataset cannot be opened or
+			 * snapshot iteration fails.
+			 * @throws std::bad_alloc if result storage cannot be
+			 * allocated.
 			 */
 			virtual std::vector<Snapshot> snapshots() const;
 

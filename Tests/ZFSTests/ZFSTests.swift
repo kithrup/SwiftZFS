@@ -317,6 +317,24 @@ final class ZFSTests: XCTestCase {
     }
   }
 
+  func testSnapshotCreationOrder() throws {
+    guard let datasetName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_DATASET"]
+    else {
+      throw XCTSkip("Set SWIFTZFS_TEST_DATASET to check snapshot creation order")
+    }
+    let poolName = String(datasetName.split(separator: "/", maxSplits: 1)[0])
+    let dataset = try ZFS().pool(named: poolName).dataset(named: datasetName)
+    let snapshots = try dataset.snapshots()
+    guard snapshots.count > 1 else {
+      throw XCTSkip("At least two existing snapshots are needed to check ordering")
+    }
+    let transactions = try snapshots.map {
+      try XCTUnwrap(UInt64($0.property(named: "createtxg").value))
+    }
+    XCTAssertEqual(transactions, transactions.sorted())
+    XCTAssertEqual(Set(snapshots).count, snapshots.count)
+  }
+
   func testSnapshotSend() async throws {
     guard let snapshotName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_SEND_SNAPSHOT"]
     else {
@@ -329,11 +347,17 @@ final class ZFSTests: XCTestCase {
     let snapshot = try XCTUnwrap(pool.dataset(named: snapshotName) as? Snapshot)
 
     var byteCount = 0
-    for try await data in try snapshot.send() {
+    let fullStream = try snapshot.send()
+    XCTAssertTrue(fullStream.pool === snapshot.pool)
+    XCTAssertTrue(fullStream.snapshot === snapshot)
+    XCTAssertNil(fullStream.from)
+    for try await data in fullStream {
       XCTAssertFalse(data.isEmpty)
       byteCount += data.count
     }
     XCTAssertGreaterThan(byteCount, 0)
+    XCTAssertTrue(fullStream.snapshot === snapshot)
+    XCTAssertTrue(fullStream.pool === snapshot.pool)
 
     var nilBaseByteCount = 0
     for try await data in try snapshot.send(from: nil) {
@@ -349,11 +373,16 @@ final class ZFSTests: XCTestCase {
     if let baseName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_SEND_BASE"] {
       let base = try XCTUnwrap(pool.dataset(named: baseName) as? Snapshot)
       var incrementalBytes = 0
-      for try await data in try snapshot.send(from: base) {
+      let incrementalStream = try snapshot.send(from: base)
+      XCTAssertTrue(incrementalStream.pool === snapshot.pool)
+      XCTAssertTrue(incrementalStream.snapshot === snapshot)
+      XCTAssertTrue(incrementalStream.from === base)
+      for try await data in incrementalStream {
         XCTAssertFalse(data.isEmpty)
         incrementalBytes += data.count
       }
       XCTAssertGreaterThan(incrementalBytes, 0)
+      XCTAssertTrue(incrementalStream.from === base)
     }
   }
 

@@ -668,16 +668,16 @@ namespace zfs {
 			};
 
 			/*
-			 * Snapshot discovery needs only names/types, so use the lightweight v2
-			 * iterator mode and close each iterator-owned handle immediately.
+			 * Sort by creation transaction while retaining the
+			 * lightweight v2 iterator mode; close each
+			 * iterator-owned handle immediately.
 			 */
-			const int error = zfs_iter_snapshots_v2(dataset.get(), ZFS_ITER_SIMPLE,
-					callback, &state, 0, 0);
+			const int error =
+			    zfs_iter_snapshots_sorted_v2(dataset.get(), ZFS_ITER_SIMPLE, callback, &state, 0, 0);
 			if (exception != nullptr)
 				std::rethrow_exception(exception);
 			if (error != 0)
-				detail::throw_libzfs_error(*impl_->context(),
-						"zfs_iter_snapshots_v2()");
+				detail::throw_libzfs_error(*impl_->context(), "zfs_iter_snapshots_sorted_v2()");
 
 			return result;
 		}
