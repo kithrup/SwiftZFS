@@ -27,7 +27,12 @@ final class DatasetDiscovery {
 }
 
 /// The common base class for ZFS filesystems, volumes, and snapshots.
-public class Dataset {
+///
+/// Equality and hashing use the cached containing pool GUID and dataset GUID.
+/// Independently opened wrappers compare equal regardless of cached names or
+/// properties. Comparisons perform no OpenZFS I/O. All subclasses inherit this
+/// identity, including when used through the base class.
+public class Dataset: Hashable {
   let handle: OpaquePointer
 
   /// Full ZFS dataset name.
@@ -56,6 +61,24 @@ public class Dataset {
 
   /// Concrete dataset kind, recorded during discovery.
   public let type: DatasetType
+
+  /// Compare dataset identity within its containing pool.
+  ///
+  /// - Parameters:
+  ///   - lhs: First dataset wrapper.
+  ///   - rhs: Second dataset wrapper.
+  /// - Returns: Whether both pool GUIDs and dataset GUIDs match.
+  public static func == (lhs: Dataset, rhs: Dataset) -> Bool {
+    lhs.pool == rhs.pool && lhs.guid == rhs.guid
+  }
+
+  /// Hash the immutable dataset identity without OpenZFS I/O.
+  ///
+  /// - Parameter hasher: Hasher to receive the pool and dataset GUIDs.
+  public final func hash(into hasher: inout Hasher) {
+    hasher.combine(pool)
+    hasher.combine(guid)
+  }
 
   init(handle: OpaquePointer, discovery: DatasetDiscovery) throws {
     do {
@@ -557,7 +580,9 @@ public final class Snapshot: Dataset {
 }
 
 /// Filesystems and volumes discovered in a single pool traversal.
-public struct DatasetCollection {
+///
+/// Equality and hashing include both arrays in order, using dataset identity.
+public struct DatasetCollection: Hashable {
   /// Filesystem datasets, including the pool root dataset.
   public let filesystems: [Filesystem]
 

@@ -30,6 +30,16 @@ Every dataset exposes its containing pool as `dataset.pool`, including root
 datasets and snapshots. It retains the original `Pool` instance, keeping pool
 operations available even after the discovering `ZFS` context goes away.
 
+Pools and datasets conform to `Hashable` and `Equatable`, so they can be used
+as `Set` elements or dictionary keys. Pools compare by pool GUID; datasets
+compare by containing pool GUID and dataset GUID. Independently opened wrappers
+for the same object compare equal, including `Filesystem`, `Volume`, and
+`Snapshot` instances viewed as `Dataset`. Equality and hashing use cached
+immutable identity without OpenZFS I/O; names and mutable properties do not
+participate. `DatasetCollection` compares its filesystem and volume arrays in
+order using this identity. `Property`, `SendOptions`, and `ZFSError` compare
+and hash all their stored values.
+
 Lookup and other operations that access OpenZFS throw ``ZFSError``. A missing
 dataset has code `ZFSError.Code.notFound`; a name outside the pool has code
 `ZFSError.Code.invalidArgument`.

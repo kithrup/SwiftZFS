@@ -4,6 +4,71 @@ import XCTest
 @testable import ZFS
 
 final class ZFSTests: XCTestCase {
+  func testPoolAndDatasetIdentity() throws {
+    let pools = try ZFS().pools()
+    guard let pool = pools.first else { throw XCTSkip("No imported pool") }
+    let reopenedPool = try ZFS().pool(named: pool.name)
+    XCTAssertFalse(pool === reopenedPool)
+    XCTAssertEqual(pool, reopenedPool)
+    XCTAssertEqual(pool.hashValue, reopenedPool.hashValue)
+    XCTAssertEqual(Set([pool, reopenedPool]).count, 1)
+    XCTAssertEqual([pool: "found"][reopenedPool], "found")
+    for other in pools.dropFirst() {
+      XCTAssertNotEqual(pool, other)
+    }
+
+    let datasets = try pool.datasets()
+    let reopenedDatasets = try reopenedPool.datasets()
+    XCTAssertEqual(datasets, reopenedDatasets)
+    XCTAssertEqual(Set([datasets, reopenedDatasets]).count, 1)
+    XCTAssertEqual(Set(datasets.filesystems), Set(reopenedDatasets.filesystems))
+    XCTAssertEqual(Set(datasets.volumes), Set(reopenedDatasets.volumes))
+    let all: [Dataset] = datasets.filesystems + datasets.volumes
+    let reopened: [Dataset] = reopenedDatasets.filesystems + reopenedDatasets.volumes
+    let byName = Dictionary(uniqueKeysWithValues: reopened.map { ($0.name, $0) })
+    XCTAssertEqual(Set(all).count, all.count)
+    for dataset in all {
+      let other = try XCTUnwrap(byName[dataset.name])
+      XCTAssertFalse(dataset === other)
+      XCTAssertEqual(dataset, other)
+      XCTAssertEqual(dataset.hashValue, other.hashValue)
+      XCTAssertEqual([dataset: "found"][other], "found")
+    }
+    let root = try XCTUnwrap(all.first { $0.name == pool.name })
+    for child in all where child.name != pool.name {
+      XCTAssertNotEqual(root, child)
+    }
+    if datasets.filesystems.count > 1 {
+      XCTAssertNotEqual(
+        datasets,
+        DatasetCollection(
+          filesystems: Array(datasets.filesystems.reversed()), volumes: datasets.volumes)
+      )
+    }
+  }
+
+  func testHashableValues() {
+    XCTAssertEqual(Set([SendOptions(), SendOptions()]).count, 1)
+    for options in [
+      SendOptions(embeddedData: true), SendOptions(largeBlocks: true),
+      SendOptions(compressed: true), SendOptions(raw: true),
+    ] {
+      XCTAssertNotEqual(SendOptions(), options)
+    }
+    let error = ZFSError(operation: "test", code: .ioError, systemError: 5, message: "failed")
+    let same = ZFSError(operation: "test", code: .ioError, systemError: 5, message: "failed")
+    XCTAssertEqual(error, same)
+    XCTAssertEqual(Set([error, same]).count, 1)
+    for different in [
+      ZFSError(operation: "other", code: .ioError, systemError: 5, message: "failed"),
+      ZFSError(operation: "test", code: .unknown, systemError: 5, message: "failed"),
+      ZFSError(operation: "test", code: .ioError, systemError: 0, message: "failed"),
+      ZFSError(operation: "test", code: .ioError, systemError: 5, message: "other"),
+    ] {
+      XCTAssertNotEqual(error, different)
+    }
+  }
+
   func testDatasetParentsAndPaths() throws {
     guard let pool = try ZFS().pools().first else { throw XCTSkip("No imported pool") }
     let datasets = try pool.datasets()
@@ -143,6 +208,12 @@ final class ZFSTests: XCTestCase {
     let openedSnapshot = try pool.dataset(named: snapshot.name)
     XCTAssertEqual(openedSnapshot.name, snapshot.name)
     XCTAssertTrue(openedSnapshot.isSnapshot)
+    XCTAssertFalse(snapshot === openedSnapshot)
+    XCTAssertEqual(snapshot, openedSnapshot)
+    XCTAssertEqual(snapshot.hashValue, openedSnapshot.hashValue)
+    let typedSnapshot = try XCTUnwrap(openedSnapshot as? Snapshot)
+    XCTAssertEqual(Set([snapshot, typedSnapshot]).count, 1)
+    XCTAssertNotEqual(snapshot, dataset)
     XCTAssertEqual(openedSnapshot.parent?.path, dataset.path)
     XCTAssertTrue(openedSnapshot.pool === pool)
     XCTAssertTrue(openedSnapshot.parent?.pool === pool)

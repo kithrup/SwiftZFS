@@ -1,7 +1,10 @@
 import CZFS
 
 /// A currently imported ZFS storage pool.
-public final class Pool {
+///
+/// Equality and hashing use the cached pool GUID, so independently opened
+/// wrappers for the same pool compare equal without OpenZFS I/O.
+public final class Pool: Hashable {
   private let handle: OpaquePointer
 
   /// Pool name.
@@ -9,6 +12,23 @@ public final class Pool {
 
   /// Pool GUID.
   public let guid: UInt64
+
+  /// Compare pool identity using GUIDs.
+  ///
+  /// - Parameters:
+  ///   - lhs: First pool wrapper.
+  ///   - rhs: Second pool wrapper.
+  /// - Returns: Whether both wrappers identify the same pool.
+  public static func == (lhs: Pool, rhs: Pool) -> Bool {
+    lhs.guid == rhs.guid
+  }
+
+  /// Hash the immutable pool identity without OpenZFS I/O.
+  ///
+  /// - Parameter hasher: Hasher to receive the pool GUID.
+  public func hash(into hasher: inout Hasher) {
+    hasher.combine(guid)
+  }
 
   init(handle: OpaquePointer) throws {
     do {

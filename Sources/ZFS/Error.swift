@@ -1,7 +1,8 @@
 /// An error reported by SwiftZFS or OpenZFS.
-public struct ZFSError: Error, CustomStringConvertible, Sendable {
+/// Equality and hashing include the operation, code, system error, and message.
+public struct ZFSError: Error, CustomStringConvertible, Hashable, Sendable {
   /// High-level error classifications that are stable across the C ABI.
-  public enum Code: Sendable {
+  public enum Code: Hashable, Sendable {
     /// The failure could not be classified more specifically.
     case unknown
     /// OpenZFS initialization failed.

@@ -2,7 +2,8 @@ import CZFS
 import Foundation
 
 /// Options controlling the format of a snapshot send stream.
-public struct SendOptions {
+/// Equality and hashing include all option values.
+public struct SendOptions: Hashable {
   /// Permit embedded data records.
   public var embeddedData: Bool
 
