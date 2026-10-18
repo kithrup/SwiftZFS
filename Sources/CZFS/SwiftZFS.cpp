@@ -1068,6 +1068,118 @@ swiftzfs_dataset_create_snapshot(const swiftzfs_dataset_t *dataset,
 	}
 }
 
+namespace
+{
+	swiftzfs_status_t
+	copy_framing_bytes(const zfs::SendStream::Chunk& bytes, uint8_t** result, size_t* size)
+	{
+		auto* copy = static_cast<uint8_t*>(std::malloc(bytes.size()));
+		if (copy == nullptr)
+			throw std::bad_alloc();
+		std::memcpy(copy, bytes.data(), bytes.size());
+		*result = copy;
+		*size = bytes.size();
+		return SWIFTZFS_OK;
+	}
+} // namespace
+
+extern "C" swiftzfs_status_t
+swiftzfs_send_compound_header(const char* target_snapshot, uint8_t** result, size_t* size,
+			      swiftzfs_error_t** error)
+{
+	clear_error(error);
+	if (result != nullptr)
+		*result = nullptr;
+	if (size != nullptr)
+		*size = 0;
+	if (target_snapshot == nullptr || result == nullptr || size == nullptr)
+		return invalid_argument(error, "target, result, and size must not be null");
+	try {
+		return copy_framing_bytes(zfs::SendStream::compound_header(target_snapshot), result, size);
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+extern "C" swiftzfs_status_t
+swiftzfs_send_replication_header(const swiftzfs_dataset_t* target_snapshot,
+				 const swiftzfs_replication_dataset_t* datasets, size_t dataset_count,
+				 const swiftzfs_send_options_t* options, uint8_t** result, size_t* size,
+				 swiftzfs_error_t** error)
+{
+	clear_error(error);
+	if (result != nullptr)
+		*result = nullptr;
+	if (size != nullptr)
+		*size = 0;
+	const auto* target = as_snapshot(target_snapshot);
+	if (target == nullptr || result == nullptr || size == nullptr ||
+	    (datasets == nullptr && dataset_count != 0))
+		return invalid_argument(error, "target, selection, result, and size must be valid");
+	try {
+		std::vector<zfs::ReplicationDataset> selection;
+		selection.reserve(dataset_count);
+		for (size_t i = 0; i < dataset_count; ++i) {
+			const auto& item = datasets[i];
+			if (item.dataset == nullptr || item.dataset->impl == nullptr ||
+			    (item.snapshots == nullptr && item.snapshot_count != 0) ||
+			    (item.retained_snapshots == nullptr && item.retained_snapshot_count != 0))
+				return invalid_argument(error, "invalid replication dataset selection");
+			zfs::ReplicationDataset entry;
+			entry.dataset = item.dataset->impl.get();
+			if (item.from_snapshot != nullptr) {
+				entry.from = as_snapshot(item.from_snapshot);
+				if (entry.from == nullptr)
+					return invalid_argument(error, "replication base must be a snapshot");
+			}
+			entry.snapshots.reserve(item.snapshot_count);
+			for (size_t j = 0; j < item.snapshot_count; ++j) {
+				const auto* snapshot = as_snapshot(item.snapshots[j]);
+				if (snapshot == nullptr)
+					return invalid_argument(error,
+								"replication target must be a snapshot");
+				entry.snapshots.push_back(snapshot);
+			}
+			entry.retained_snapshots.reserve(item.retained_snapshot_count);
+			for (size_t j = 0; j < item.retained_snapshot_count; ++j) {
+				const auto* snapshot = as_snapshot(item.retained_snapshots[j]);
+				if (snapshot == nullptr)
+					return invalid_argument(error, "retained entry must be a snapshot");
+				entry.retained_snapshots.push_back(snapshot);
+			}
+			selection.push_back(std::move(entry));
+		}
+		return copy_framing_bytes(
+		    zfs::SendStream::replication_header(*target, selection, send_options(options)), result,
+		    size);
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+extern "C" swiftzfs_status_t
+swiftzfs_send_compound_footer(uint8_t** result, size_t* size, swiftzfs_error_t** error)
+{
+	clear_error(error);
+	if (result != nullptr)
+		*result = nullptr;
+	if (size != nullptr)
+		*size = 0;
+	if (result == nullptr || size == nullptr)
+		return invalid_argument(error, "result and size must not be null");
+	try {
+		return copy_framing_bytes(zfs::SendStream::compound_footer(), result, size);
+	} catch (...) {
+		return translate_current_exception(error);
+	}
+}
+
+extern "C" void
+swiftzfs_bytes_free(uint8_t* bytes)
+{
+	std::free(bytes);
+}
+
 	extern "C" swiftzfs_status_t
 swiftzfs_snapshot_send_stream(const swiftzfs_dataset_t *snapshot,
 		const swiftzfs_send_options_t *options, swiftzfs_send_stream_t **result,

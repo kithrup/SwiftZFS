@@ -15,9 +15,42 @@ print_error(const char* operation, swiftzfs_error_t* error)
 	fputc('\n', stderr);
 }
 
+static void
+test_compound_framing(void)
+{
+	/* Framing is independent of a live OpenZFS context. */
+	uint8_t* framing = NULL;
+	size_t framing_size = 0;
+	swiftzfs_error_t* framing_error = NULL;
+	assert(swiftzfs_send_compound_header("tank/home@target", &framing, &framing_size, &framing_error) ==
+	       SWIFTZFS_OK);
+	assert(framing != NULL && framing_size > 0 && framing_error == NULL);
+	size_t header_size = framing_size;
+	swiftzfs_bytes_free(framing);
+	assert(swiftzfs_send_compound_footer(&framing, &framing_size, &framing_error) == SWIFTZFS_OK);
+	assert(framing != NULL && header_size == 2 * framing_size);
+	swiftzfs_bytes_free(framing);
+	assert(swiftzfs_send_compound_header("tank/home", &framing, &framing_size, &framing_error) !=
+	       SWIFTZFS_OK);
+	assert(framing == NULL && framing_size == 0 && framing_error != NULL);
+	swiftzfs_error_destroy(framing_error);
+	assert(swiftzfs_send_compound_header(NULL, &framing, &framing_size, &framing_error) ==
+	       SWIFTZFS_INVALID_ARGUMENT);
+	swiftzfs_error_destroy(framing_error);
+	assert(swiftzfs_send_compound_footer(NULL, &framing_size, &framing_error) ==
+	       SWIFTZFS_INVALID_ARGUMENT);
+	swiftzfs_error_destroy(framing_error);
+	assert(swiftzfs_send_replication_header(NULL, NULL, 0, NULL, &framing, &framing_size,
+						&framing_error) == SWIFTZFS_INVALID_ARGUMENT);
+	assert(framing == NULL && framing_size == 0);
+	swiftzfs_error_destroy(framing_error);
+	swiftzfs_bytes_free(NULL);
+}
+
 	int
 main(void)
 {
+	test_compound_framing();
 	swiftzfs_context_t *context = NULL;
 	swiftzfs_pool_list_t *pools = NULL;
 	swiftzfs_error_t *error = NULL;

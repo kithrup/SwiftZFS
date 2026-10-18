@@ -3,11 +3,19 @@
 #include <libnvpair.h>
 #include <libzfs_core.h>
 #include <zfs_prop.h>
+#include <sys/zfs_ioctl.h>
+#if __has_include(<sys/simd_config.h>)
+#include <sys/simd_config.h>
+#endif
+#include <zfs_fletcher.h>
 
 #include <cerrno>
 #include <cstring>
 #include <exception>
 #include <functional>
+#include <limits>
+#include <set>
+#include <sstream>
 #include <thread>
 #include <unordered_map>
 #include <utility>
@@ -220,6 +228,323 @@ namespace zfs {
 
 	} // namespace
 
+	namespace
+	{
+		using SendMetadata = std::unique_ptr<nvlist_t, decltype(&nvlist_free)>;
+
+		void
+		send_nv_check(int error)
+		{
+			if (error != 0)
+				throw_lzc_error(error, "encode replication metadata");
+		}
+
+		SendMetadata
+		make_send_metadata()
+		{
+			nvlist_t* list = nullptr;
+			send_nv_check(nvlist_alloc(&list, NV_UNIQUE_NAME, 0));
+			return SendMetadata(list, &nvlist_free);
+		}
+
+		[[noreturn]] void
+		invalid_selection(const std::string& message)
+		{
+			throw Error(Error::Code::invalid_argument, EINVAL, "replication header: " + message);
+		}
+
+		std::string
+		snapshot_dataset(const std::string& name)
+		{
+			return name.substr(0, name.find('@'));
+		}
+
+		std::string
+		snapshot_component(const std::string& name)
+		{
+			return name.substr(name.find('@') + 1);
+		}
+
+		void
+		capture_send_properties(zfs_handle_t* handle, nvlist_t* result)
+		{
+			// Keep values in their native nvlist types, including index properties.
+			// Only local and received properties belong in replication metadata.
+			for (nvlist_t* props : {zfs_get_all_props(handle), zfs_get_user_props(handle)}) {
+				if (props == nullptr)
+					continue;
+				for (nvpair_t* pair = nvlist_next_nvpair(props, nullptr); pair != nullptr;
+				     pair = nvlist_next_nvpair(props, pair)) {
+					const char* name = nvpair_name(pair);
+					const zfs_prop_t prop = zfs_name_to_prop(name);
+					const bool user = zfs_prop_user(name) != B_FALSE;
+					if (!user && (prop == ZPROP_INVAL || zfs_prop_readonly(prop)))
+						continue;
+					const bool space_limit =
+					    prop == ZFS_PROP_QUOTA || prop == ZFS_PROP_RESERVATION ||
+					    prop == ZFS_PROP_REFQUOTA || prop == ZFS_PROP_REFRESERVATION;
+					if (space_limit && zfs_get_type(handle) == ZFS_TYPE_SNAPSHOT)
+						continue;
+					nvlist_t* value = nullptr;
+					send_nv_check(nvpair_value_nvlist(pair, &value));
+					const char* source = nullptr;
+					if (nvlist_lookup_string(value, ZPROP_SOURCE, &source) == 0) {
+						if (std::strcmp(source, zfs_get_name(handle)) != 0 &&
+						    std::strcmp(source, ZPROP_SOURCE_VAL_RECVD) != 0)
+							continue;
+					} else if (!space_limit) {
+						continue;
+					}
+					if (user || zfs_prop_get_type(prop) == PROP_TYPE_STRING) {
+						const char* text = nullptr;
+						send_nv_check(
+						    nvlist_lookup_string(value, ZPROP_VALUE, &text));
+						send_nv_check(nvlist_add_string(result, name, text));
+					} else {
+						uint64_t number = 0;
+						send_nv_check(
+						    nvlist_lookup_uint64(value, ZPROP_VALUE, &number));
+						send_nv_check(nvlist_add_uint64(result, name, number));
+					}
+				}
+			}
+		}
+
+		SendStream::Chunk
+		encode_compound_header(const std::string& target, void* payload = nullptr,
+				       std::size_t payload_size = 0)
+		{
+			dmu_replay_record_t begin_record;
+			std::memset(&begin_record, 0, sizeof(begin_record));
+			auto& begin = begin_record.drr_u.drr_begin;
+			if (target.size() >= sizeof(begin.drr_toname) ||
+			    target.find('\0') != std::string::npos ||
+			    !zfs_name_valid(target.c_str(), ZFS_TYPE_SNAPSHOT))
+				invalid_selection("target must be a valid full snapshot name");
+			if (payload_size > std::numeric_limits<uint32_t>::max())
+				invalid_selection("metadata exceeds the stream record size limit");
+			begin_record.drr_type = dmu_replay_record_t::DRR_BEGIN;
+			begin_record.drr_payloadlen = static_cast<uint32_t>(payload_size);
+			begin.drr_magic = DMU_BACKUP_MAGIC;
+			DMU_SET_STREAM_HDRTYPE(begin.drr_versioninfo, DMU_COMPOUNDSTREAM);
+			std::memcpy(begin.drr_toname, target.c_str(), target.size() + 1);
+
+			zio_cksum_t checksum = {};
+			fletcher_4_incremental_native(&begin_record, sizeof(begin_record), &checksum);
+			if (payload_size != 0)
+				fletcher_4_incremental_native(payload, payload_size, &checksum);
+			dmu_replay_record_t end;
+			std::memset(&end, 0, sizeof(end));
+			end.drr_type = dmu_replay_record_t::DRR_END;
+			end.drr_u.drr_end.drr_checksum = checksum;
+			SendStream::Chunk bytes(sizeof(begin_record) + payload_size + sizeof(end));
+			std::memcpy(bytes.data(), &begin_record, sizeof(begin_record));
+			if (payload_size != 0)
+				std::memcpy(bytes.data() + sizeof(begin_record), payload, payload_size);
+			std::memcpy(bytes.data() + sizeof(begin_record) + payload_size, &end, sizeof(end));
+			return bytes;
+		}
+	} // namespace
+
+	SendStream::Chunk
+	SendStream::compound_header(const std::string& target)
+	{
+		return encode_compound_header(target);
+	}
+
+	SendStream::Chunk
+	SendStream::compound_footer()
+	{
+		dmu_replay_record_t end;
+		std::memset(&end, 0, sizeof(end));
+		end.drr_type = dmu_replay_record_t::DRR_END;
+		Chunk bytes(sizeof(end));
+		std::memcpy(bytes.data(), &end, sizeof(end));
+		return bytes;
+	}
+
+	SendStream::Chunk
+	SendStream::replication_header(const Snapshot& target,
+				       const std::vector<ReplicationDataset>& datasets,
+				       const SendOptions& options)
+	{
+		const std::string root = snapshot_dataset(target.path());
+		DatasetHandle target_handle(target.impl_->open());
+		const uint64_t target_txg = zfs_prop_get_int(target_handle.get(), ZFS_PROP_CREATETXG);
+		const uint64_t target_guid = zfs_prop_get_int(target_handle.get(), ZFS_PROP_GUID);
+		struct Entry {
+			SendMetadata metadata;
+			const ReplicationDataset* selection;
+			uint64_t anchor;
+			uint64_t guid;
+			std::string origin;
+		};
+		std::map<std::string, Entry> entries;
+		std::set<uint64_t> dataset_guids;
+		for (const auto& selection : datasets) {
+			if (selection.dataset == nullptr || selection.dataset->is_snapshot() ||
+			    selection.snapshots.empty())
+				invalid_selection("each dataset needs at least one target snapshot");
+			const std::string name = selection.dataset->path();
+			if (name != root && name.compare(0, root.size() + 1, root + "/") != 0)
+				invalid_selection("dataset is outside the package root: " + name);
+			if (entries.find(name) != entries.end())
+				invalid_selection("duplicate dataset: " + name);
+			DatasetHandle handle(selection.dataset->impl_->open());
+			const uint64_t guid = zfs_prop_get_int(handle.get(), ZFS_PROP_GUID);
+			if (!dataset_guids.insert(guid).second)
+				invalid_selection("duplicate dataset GUID: " + name);
+			auto metadata = make_send_metadata();
+			send_nv_check(nvlist_add_string(metadata.get(), "name", name.c_str()));
+			auto properties = make_send_metadata();
+			capture_send_properties(handle.get(), properties.get());
+			send_nv_check(nvlist_add_nvlist(metadata.get(), "props", properties.get()));
+			if (zfs_prop_get_int(handle.get(), ZFS_PROP_ENCRYPTION) != ZIO_CRYPT_OFF) {
+				if (!options.raw)
+					invalid_selection("encrypted replication requires raw sends: " +
+							  name);
+				boolean_t is_root = B_FALSE;
+				if (zfs_crypto_get_encryption_root(handle.get(), &is_root, nullptr) != 0)
+					detail::throw_libzfs_error(*selection.dataset->impl_->context(),
+								   "replication encryption root");
+				if (is_root)
+					send_nv_check(nvlist_add_boolean(metadata.get(), "is_encroot"));
+			}
+			char origin[ZFS_MAX_DATASET_NAME_LEN] = {};
+			// Non-clones have no origin value; libzfs returns -1 without an error.
+			if (zfs_prop_get(handle.get(), ZFS_PROP_ORIGIN, origin, sizeof(origin), nullptr,
+					 nullptr, 0, B_TRUE) != 0)
+				origin[0] = 0;
+			const bool clone = origin[0] != '\0' && std::strcmp(origin, "-") != 0;
+			if (clone) {
+				DatasetHandle origin_handle(
+				    zfs_open(selection.dataset->impl_->context()->handle(), origin,
+					     ZFS_TYPE_SNAPSHOT));
+				if (origin_handle.get() == nullptr)
+					detail::throw_libzfs_error(*selection.dataset->impl_->context(),
+								   "replication clone origin");
+				send_nv_check(
+				    nvlist_add_uint64(metadata.get(), "origin",
+						      zfs_prop_get_int(origin_handle.get(), ZFS_PROP_GUID)));
+				if (selection.from == nullptr)
+					invalid_selection(
+					    "a clone needs its origin or a local incremental base: " + name);
+			}
+
+			auto snapshots = make_send_metadata();
+			auto snapshot_properties = make_send_metadata();
+			uint64_t previous_txg = 0;
+			uint64_t base_guid = 0;
+			uint64_t last_guid = 0;
+			auto capture_snapshot = [&](const Snapshot* snapshot, bool base,
+						    bool retained = false) {
+				if (snapshot == nullptr)
+					invalid_selection("null snapshot for " + name);
+				const bool local = snapshot_dataset(snapshot->path()) == name;
+				if (!local && (!base || !clone || snapshot->path() != origin))
+					invalid_selection("snapshot does not belong to dataset: " +
+							  snapshot->path());
+				DatasetHandle snapshot_handle(snapshot->impl_->open());
+				const uint64_t txg =
+				    zfs_prop_get_int(snapshot_handle.get(), ZFS_PROP_CREATETXG);
+				const uint64_t snap_guid =
+				    zfs_prop_get_int(snapshot_handle.get(), ZFS_PROP_GUID);
+				if ((!retained && txg <= previous_txg) || txg > target_txg)
+					invalid_selection("snapshots must be strictly chronological and no "
+							  "later than target: " +
+							  snapshot->path());
+				if (!retained)
+					previous_txg = txg;
+				if (base && local)
+					base_guid = snap_guid;
+				if (local) {
+					const std::string component = snapshot_component(snapshot->path());
+					send_nv_check(
+					    nvlist_add_uint64(snapshots.get(), component.c_str(), snap_guid));
+					auto props = make_send_metadata();
+					capture_send_properties(snapshot_handle.get(), props.get());
+					send_nv_check(nvlist_add_nvlist(snapshot_properties.get(),
+									component.c_str(), props.get()));
+				}
+				if (!retained)
+					last_guid = snap_guid;
+			};
+			if (selection.from != nullptr)
+				capture_snapshot(selection.from, true);
+			for (const Snapshot* snapshot : selection.snapshots)
+				capture_snapshot(snapshot, false);
+			for (const Snapshot* snapshot : selection.retained_snapshots)
+				capture_snapshot(snapshot, false, true);
+			if (name == root && last_guid != target_guid)
+				invalid_selection("root entry must end at the package target");
+			send_nv_check(nvlist_add_nvlist(metadata.get(), "snaps", snapshots.get()));
+			send_nv_check(
+			    nvlist_add_nvlist(metadata.get(), "snapprops", snapshot_properties.get()));
+			entries.emplace(name, Entry{std::move(metadata), &selection,
+						    base_guid != 0 ? base_guid : last_guid, guid,
+						    clone ? origin : ""});
+		}
+		auto root_entry = entries.find(root);
+		if (root_entry == entries.end())
+			invalid_selection("the package root must be selected");
+		auto header = make_send_metadata();
+		const std::string tosnap = snapshot_component(target.path());
+		send_nv_check(nvlist_add_string(header.get(), "tosnap", tosnap.c_str()));
+		if (root_entry->second.selection->from != nullptr &&
+		    snapshot_dataset(root_entry->second.selection->from->path()) == root) {
+			const auto& from = *root_entry->second.selection->from;
+			const std::string fromsnap = snapshot_component(from.path());
+			send_nv_check(nvlist_add_string(header.get(), "fromsnap", fromsnap.c_str()));
+		}
+		if (options.raw)
+			send_nv_check(nvlist_add_boolean(header.get(), "raw"));
+		auto filesystems = make_send_metadata();
+		for (auto& pair : entries) {
+			const std::string& name = pair.first;
+			uint64_t parent_anchor = 0;
+			if (name != root) {
+				const auto parent = entries.find(name.substr(0, name.rfind('/')));
+				if (parent == entries.end())
+					invalid_selection("missing included parent for " + name);
+				parent_anchor = parent->second.anchor;
+			}
+			send_nv_check(
+			    nvlist_add_uint64(pair.second.metadata.get(), "parentfromsnap", parent_anchor));
+			if (!pair.second.origin.empty()) {
+				const auto origin_dataset = snapshot_dataset(pair.second.origin);
+				const auto origin_entry = entries.find(origin_dataset);
+				if (origin_entry != entries.end()) {
+					nvlist_t* snaps = nullptr;
+					uint64_t origin_guid = 0;
+					send_nv_check(nvlist_lookup_nvlist(
+					    origin_entry->second.metadata.get(), "snaps", &snaps));
+					if (nvlist_lookup_uint64(
+						snaps, snapshot_component(pair.second.origin).c_str(),
+						&origin_guid) != 0)
+						invalid_selection("clone origin must be included in the "
+								  "snapshot catalogue: " +
+								  pair.second.origin);
+				} else if (origin_dataset == root ||
+					   origin_dataset.compare(0, root.size() + 1, root + "/") == 0) {
+					invalid_selection("clone origin dataset was excluded: " +
+							  origin_dataset);
+				}
+			}
+			std::ostringstream guid;
+			guid << "0x" << std::hex << pair.second.guid;
+			send_nv_check(nvlist_add_nvlist(filesystems.get(), guid.str().c_str(),
+							pair.second.metadata.get()));
+		}
+		send_nv_check(nvlist_add_nvlist(header.get(), "fss", filesystems.get()));
+		size_t packed_size = 0;
+		send_nv_check(nvlist_size(header.get(), &packed_size, NV_ENCODE_XDR));
+		if (packed_size > std::numeric_limits<uint32_t>::max())
+			invalid_selection("replication metadata is too large");
+		std::vector<char> packed(packed_size);
+		char* buffer = packed.data();
+		send_nv_check(nvlist_pack(header.get(), &buffer, &packed_size, NV_ENCODE_XDR, 0));
+		return encode_compound_header(target.path(), packed.data(), packed_size);
+	}
 
 	class SendStream::Iterator::State {
 		public:

@@ -89,6 +89,17 @@ extern "C" {
 		bool raw;
 	} swiftzfs_send_options_t;
 
+	/** Explicit selection for one dataset; all handles and arrays are borrowed. */
+	typedef struct swiftzfs_replication_dataset {
+		const swiftzfs_dataset_t* dataset;	 /**< Included filesystem or volume. */
+		const swiftzfs_dataset_t* from_snapshot; /**< Base or clone origin; NULL for a full send. */
+		const swiftzfs_dataset_t* const* snapshots; /**< Selected targets in creation order. */
+		size_t snapshot_count; /**< Number of selected targets, excluding the base. */
+		const swiftzfs_dataset_t* const*
+		    retained_snapshots;		/**< Catalogue-only snapshots already on the receiver. */
+		size_t retained_snapshot_count; /**< Number of catalogue-only snapshots. */
+	} swiftzfs_replication_dataset_t;
+
 	/* Error objects. */
 	void swiftzfs_error_destroy(swiftzfs_error_t *error);
 	swiftzfs_error_code_t swiftzfs_error_code(const swiftzfs_error_t *error);
@@ -427,6 +438,58 @@ extern "C" {
 			size_t property_count,
 			swiftzfs_dataset_t **result,
 			swiftzfs_error_t **error);
+
+	/**
+	 * Encode an empty-metadata compound BEGIN and its checksummed header END.
+	 * Append selected snapshot streams and one swiftzfs_send_compound_footer().
+	 * Does not enumerate datasets or generate replication/property metadata.
+	 * @param target_snapshot Full final snapshot name, including @.
+	 * @param result Receives caller-owned bytes; release with swiftzfs_bytes_free().
+	 * @param size Receives the byte count. Set to zero on failure.
+	 * @param error Receives owned error details; release with swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. Never throws.
+	 */
+	swiftzfs_status_t swiftzfs_send_compound_header(const char* target_snapshot, uint8_t** result,
+							size_t* size, swiftzfs_error_t** error);
+
+	/**
+	 * Encode a compound header including caller-selected replication metadata.
+	 * No enumeration is performed; selected objects are queried for properties.
+	 * Include the root and all ancestors of selected datasets; supply ordered targets
+	 * and optional bases. Encrypted datasets require raw streams. Send parents and
+	 * required origin snapshots before dependents. Omitted objects may be removed
+	 * by a receiver using -F. Snapshot holds are not included.
+	 * @param target_snapshot Final root snapshot, present in the selection.
+	 * @param datasets Borrowed array of included datasets and their targets/bases.
+	 * @param dataset_count Number of included datasets.
+	 * @param options Stream features; NULL selects defaults. Encrypted sends require raw.
+	 * @param result Receives owned bytes; release with swiftzfs_bytes_free().
+	 * @param size Receives byte count; zero on failure.
+	 * @param error Receives owned details; release with swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. Never throws.
+	 */
+	swiftzfs_status_t swiftzfs_send_replication_header(const swiftzfs_dataset_t* target_snapshot,
+							   const swiftzfs_replication_dataset_t* datasets,
+							   size_t dataset_count,
+							   const swiftzfs_send_options_t* options,
+							   uint8_t** result, size_t* size,
+							   swiftzfs_error_t** error);
+
+	/**
+	 * Encode the final compound END with a zero checksum.
+	 * @param result Receives caller-owned bytes; release with swiftzfs_bytes_free().
+	 * @param size Receives the byte count. Set to zero on failure.
+	 * @param error Receives owned error details; release with swiftzfs_error_destroy().
+	 * @return SWIFTZFS_OK on success, or an error status. Never throws.
+	 */
+	swiftzfs_status_t swiftzfs_send_compound_footer(uint8_t** result, size_t* size,
+							swiftzfs_error_t** error);
+
+	/**
+	 * Release bytes returned by the compound framing functions.
+	 * @param bytes Owned allocation, or NULL. Never throws.
+	 */
+	void swiftzfs_bytes_free(uint8_t* bytes);
 
 	/*
 	 * Pull-based snapshot send streams.  A stream owns an internal producer and

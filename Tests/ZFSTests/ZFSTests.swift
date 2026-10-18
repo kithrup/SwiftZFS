@@ -335,6 +335,166 @@ final class ZFSTests: XCTestCase {
     XCTAssertEqual(Set(snapshots).count, snapshots.count)
   }
 
+  func testReplicationHeaderSelection() throws {
+    guard let datasetName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_DATASET"] else {
+      throw XCTSkip(
+        "Set SWIFTZFS_TEST_DATASET to test replication metadata against existing snapshots")
+    }
+    let poolName = String(datasetName.split(separator: "/", maxSplits: 1)[0])
+    let dataset = try ZFS().pool(named: poolName).dataset(named: datasetName)
+    let snapshots = try dataset.snapshots()
+    guard snapshots.count >= 3 else { throw XCTSkip("At least three snapshots are needed") }
+    let base = snapshots[0]
+    let omitted = snapshots[1]
+    let target = snapshots[2]
+    let options = SendOptions(raw: true)
+    let selection = ReplicationDataset(dataset: dataset, from: base, snapshots: [target])
+    let header = try SendStream.replicationHeader(
+      for: target, datasets: [selection], options: options)
+    XCTAssertGreaterThan(header.count, try SendStream.compoundHeader(for: target).count)
+    XCTAssertThrowsError(try SendStream.replicationHeader(for: target, datasets: []))
+    XCTAssertThrowsError(
+      try SendStream.replicationHeader(
+        for: target, datasets: [selection, selection], options: options))
+    let backwards = ReplicationDataset(dataset: dataset, from: target, snapshots: [base])
+    XCTAssertThrowsError(
+      try SendStream.replicationHeader(for: base, datasets: [backwards], options: options))
+    let wrongOwner = ReplicationDataset(dataset: target, snapshots: [target])
+    XCTAssertThrowsError(
+      try SendStream.replicationHeader(for: target, datasets: [wrongOwner], options: options))
+
+    // On a hierarchy fixture, include one child while omitting its siblings.
+    var includedChild: Dataset?
+    var excludedChild: Dataset?
+    var hierarchyHeader: Data?
+    let children = try dataset.children()
+    if children.count >= 2 {
+      let component = String(target.name.split(separator: "@").last!)
+      let child = children[0]
+      let childTarget = try child.snapshot(named: component)
+      let childEntry = ReplicationDataset(dataset: child, snapshots: [childTarget])
+      hierarchyHeader = try SendStream.replicationHeader(
+        for: target, datasets: [selection, childEntry], options: options)
+      includedChild = child
+      excludedChild = children[1]
+      XCTAssertThrowsError(
+        try SendStream.replicationHeader(for: target, datasets: [childEntry], options: options))
+    }
+
+    func dumpHeader(_ header: Data) throws -> String {
+      let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+      defer { try? FileManager.default.removeItem(at: file) }
+      var package = header
+      package.append(try SendStream.compoundFooter())
+      try package.write(to: file)
+      let input = try FileHandle(forReadingFrom: file)
+      defer { try? input.close() }
+      let output = Pipe()
+      let dump = Process()
+      dump.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+      dump.arguments = ["zstream", "dump"]
+      dump.standardInput = input
+      dump.standardOutput = output
+      try dump.run()
+      let text = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+      dump.waitUntilExit()
+      XCTAssertEqual(dump.terminationReason, .exit)
+      XCTAssertEqual(dump.terminationStatus, 0)
+      return text
+    }
+    let text = try dumpHeader(hierarchyHeader ?? header)
+    let retainingHistory = ReplicationDataset(
+      dataset: dataset, from: base, snapshots: [target], retainedSnapshots: [omitted])
+    let retainedHeader = try SendStream.replicationHeader(
+      for: target, datasets: [retainingHistory], options: options)
+    let retainedText = try dumpHeader(retainedHeader)
+    XCTAssertTrue(retainedText.contains(String(omitted.name.split(separator: "@").last!)))
+    XCTAssertTrue(text.contains("hdrtype = 2"))
+    XCTAssertTrue(text.contains("fss = (embedded nvlist)"))
+    XCTAssertTrue(text.contains("props = (embedded nvlist)"))
+    XCTAssertTrue(text.contains("snapprops = (embedded nvlist)"))
+    XCTAssertTrue(text.contains(base.name.split(separator: "@").last.map(String.init)!))
+    XCTAssertTrue(text.contains(target.name.split(separator: "@").last.map(String.init)!))
+    XCTAssertFalse(text.contains(omitted.name.split(separator: "@").last.map(String.init)!))
+    if let includedChild, let excludedChild {
+      XCTAssertTrue(text.contains("name = \(includedChild.name)"))
+      XCTAssertFalse(text.contains("name = \(excludedChild.name)"))
+      XCTAssertTrue(text.contains("parentfromsnap = 0x\(String(base.guid, radix: 16))"))
+    }
+
+  }
+
+  /// Opt-in, read-only comparison with the native send package encoder.
+  /// Choose a small snapshot range: both packages are written to temporary files.
+  func testCompoundSendMatchesNative() async throws {
+    let environment = ProcessInfo.processInfo.environment
+    guard let targetName = environment["SWIFTZFS_TEST_SEND_SNAPSHOT"],
+      let baseName = environment["SWIFTZFS_TEST_SEND_BASE"]
+    else {
+      throw XCTSkip("Set SWIFTZFS_TEST_SEND_SNAPSHOT and SWIFTZFS_TEST_SEND_BASE to a small range")
+    }
+    let poolName = String(
+      targetName.split(separator: "/", maxSplits: 1)[0].split(separator: "@")[0])
+    let pool = try ZFS().pool(named: poolName)
+    let target = try XCTUnwrap(pool.dataset(named: targetName) as? Snapshot)
+    let base = try XCTUnwrap(pool.dataset(named: baseName) as? Snapshot)
+    let dataset = try XCTUnwrap(target.parent)
+    XCTAssertEqual(base.parent, dataset)
+    let snapshots = try dataset.snapshots()
+    let start = try XCTUnwrap(snapshots.firstIndex(of: base))
+    let end = try XCTUnwrap(snapshots.firstIndex(of: target))
+    guard start < end else { throw XCTSkip("The target must be newer than the base") }
+
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let actualURL = directory.appendingPathComponent("actual.zfs")
+    let nativeURL = directory.appendingPathComponent("native.zfs")
+    XCTAssertTrue(FileManager.default.createFile(atPath: actualURL.path, contents: nil))
+    XCTAssertTrue(FileManager.default.createFile(atPath: nativeURL.path, contents: nil))
+    let output = try FileHandle(forWritingTo: actualURL)
+    defer { try? output.close() }
+    try output.write(contentsOf: SendStream.compoundHeader(for: target))
+    var previous = base
+    let options = SendOptions(embeddedData: true, largeBlocks: true, compressed: true, raw: true)
+    for snapshot in snapshots[(start + 1)...end] {
+      for try await data in try snapshot.send(from: previous, options: options) {
+        try output.write(contentsOf: data)
+      }
+      previous = snapshot
+    }
+    try output.write(contentsOf: SendStream.compoundFooter())
+    try output.close()
+
+    let nativeOutput = try FileHandle(forWritingTo: nativeURL)
+    defer { try? nativeOutput.close() }
+    let native = Process()
+    native.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    native.arguments = ["zfs", "send", "-w", "-I", base.name, target.name]
+    native.standardOutput = nativeOutput
+    try native.run()
+    native.waitUntilExit()
+    XCTAssertEqual(native.terminationReason, .exit)
+    XCTAssertEqual(native.terminationStatus, 0)
+    try nativeOutput.close()
+
+    let actual = try FileHandle(forReadingFrom: actualURL)
+    let expected = try FileHandle(forReadingFrom: nativeURL)
+    defer {
+      try? actual.close()
+      try? expected.close()
+    }
+    while true {
+      let block = try actual.read(upToCount: 128 * 1024) ?? Data()
+      let reference = try expected.read(upToCount: 128 * 1024) ?? Data()
+      guard block == reference else {
+        XCTFail("Compound package differs from native zfs send -w -I")
+        return
+      }
+      if block.isEmpty { break }
+    }
+  }
+
   func testSnapshotSend() async throws {
     guard let snapshotName = ProcessInfo.processInfo.environment["SWIFTZFS_TEST_SEND_SNAPSHOT"]
     else {

@@ -396,6 +396,19 @@ namespace zfs {
 	};
 
 	/**
+	 * One explicitly selected dataset in a replication package.
+	 * All pointers are borrowed for replication_header(); no enumeration occurs.
+	 * Excluding a dataset means omitting its entire subtree from this selection.
+	 */
+	struct ReplicationDataset {
+		const Dataset* dataset = nullptr; ///< Filesystem or volume being sent.
+		const Snapshot* from = nullptr; ///< Existing incremental base, or nullptr for a new dataset.
+		std::vector<const Snapshot*> snapshots; ///< Selected targets, oldest first; excludes from.
+		std::vector<const Snapshot*>
+		    retained_snapshots; ///< Catalogue-only snapshots already on the receiver.
+	};
+
+	/**
 	 * Pull-based view of a ZFS send stream.
 	 *
 	 * A SendStream starts a background producer that asks libzfs_core to write
@@ -461,6 +474,49 @@ namespace zfs {
 			SendStream(const SendStream&) = delete;
 			SendStream& operator=(const SendStream&) = delete;
 			~SendStream() = default;
+
+			/**
+			 * Encode a compound BEGIN and its checksummed header END.
+			 * The payload is empty, as for send -I without replication or properties.
+			 * Append caller-selected snapshot streams, then compound_footer().
+			 * No datasets are enumerated. This does not generate -R metadata.
+			 * @param target Full final snapshot name, including the @ separator.
+			 * @return Encoded header bytes in native byte order.
+			 * @throws zfs::Error if target is invalid or too long.
+			 * @throws std::bad_alloc if storage cannot be allocated.
+			 */
+			static Chunk compound_header(const std::string& target);
+
+			/**
+			 * Encode the final END of a compound package (zero checksum).
+			 * Emit once, after all selected snapshot streams complete successfully.
+			 * @return Encoded footer bytes in native byte order.
+			 * @throws std::bad_alloc if storage cannot be allocated.
+			 */
+			static Chunk compound_footer();
+
+			/**
+			 * Encode a compound header with replication metadata for an explicit selection.
+			 * Captures local/received dataset and snapshot properties, GUIDs, parent
+			 * relationships, clone origins and encryption roots. Only selected targets
+			 * their bases and explicit retained snapshots are catalogued. No hierarchy or snapshot traversal occurs.
+			 * All catalogued snapshots must be no newer than the final root snapshot.
+			 * The root and every intervening ancestor must be included. Emit parents and
+			 * required origin snapshots before dependents. For a clone without a local
+			 * base, pass its origin as from and send the first increment from that origin.
+			 * Encrypted datasets require raw streams. All substreams must match options.
+			 * This catalogue is authoritative when receiving with -F: omitted objects
+			 * may be destroyed on the receiver. Snapshot holds are not included.
+			 * @param target Final root snapshot; must be the last target of the root entry.
+			 * @param datasets Included datasets with ordered target snapshots and optional bases.
+			 * @param options Send features, including whether streams are raw.
+			 * @return Compound BEGIN, XDR metadata and checksummed header END.
+			 * @throws zfs::Error for invalid selection, unavailable objects or encoding errors.
+			 * @throws std::bad_alloc if storage cannot be allocated.
+			 */
+			static Chunk replication_header(const Snapshot& target,
+							const std::vector<ReplicationDataset>& datasets,
+							const SendOptions& options = {});
 
 			/**
 			 * Read raw stream bytes into a caller-provided buffer.

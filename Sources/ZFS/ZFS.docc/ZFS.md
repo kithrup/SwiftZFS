@@ -120,6 +120,79 @@ controls embedded data, large blocks, compression, and raw encrypted sends.
 For an existing output file descriptor, `try snapshot.send(toFileDescriptor: fd)`
 writes directly without a Swift read loop. The caller keeps ownership of `fd`.
 
+To frame a caller-selected sequence of snapshot streams as one compound package,
+write `try SendStream.compoundHeader(for: finalSnapshot)` before the streams and
+`try SendStream.compoundFooter()` after they all complete successfully:
+
+```swift
+try output.write(contentsOf: SendStream.compoundHeader(for: finalSnapshot))
+var previous: Snapshot? = base
+for snapshot in selectedSnapshots {
+  for try await data in try snapshot.send(from: previous, options: options) {
+    try output.write(contentsOf: data)
+  }
+  previous = snapshot
+}
+try output.write(contentsOf: SendStream.compoundFooter())
+```
+
+Here `output` is a writable `FileHandle`, and `selectedSnapshots` is a nonempty
+array ordered by creation transaction and ending with `finalSnapshot`. Excluding
+an intermediate snapshot means sending the next included snapshot from the
+previous included one. The header checksum covers only the opening header; each
+snapshot stream retains its own checksums. No entire-stream buffering is needed.
+For multiple datasets, choose the corresponding dataset’s own incremental base and order any
+required ancestors and clone origins before their dependents.
+
+These helpers produce the empty-metadata compound framing used by `zfs send -I`
+without `-R` or `-p`. They do not generate replication metadata, preserve properties,
+or encode clone or encryption-root relationships. The caller selects and orders
+the streams; the helpers perform no traversal or dependency validation.
+
+For replication metadata, describe the included datasets explicitly:
+
+```swift
+let selection = [
+  ReplicationDataset(dataset: dataset, from: base, snapshots: selectedSnapshots)
+]
+try output.write(contentsOf:
+  SendStream.replicationHeader(for: finalSnapshot, datasets: selection, options: options))
+for item in selection {
+  var previous = item.from
+  for snapshot in item.snapshots {
+    for try await data in try snapshot.send(from: previous, options: options) {
+      try output.write(contentsOf: data)
+    }
+    previous = snapshot
+  }
+}
+try output.write(contentsOf: SendStream.compoundFooter())
+```
+
+A replication header includes local and received dataset and snapshot properties,
+snapshot GUIDs, parent relationships, clone origins, and encryption-root markers.
+It queries only the objects supplied by the caller; it does not enumerate datasets
+or snapshots. Omit an excluded dataset and its subtree from `selection`. Omit an
+excluded intermediate snapshot from the corresponding `snapshots` array; its
+successor must be sent from the preceding included snapshot. Bases are catalogued
+automatically, even though their data is not sent. Use `retainedSnapshots` to
+catalogue older snapshots already on the receiver without sending them again.
+
+Include the root and all intervening ancestors, and order the sends so parents
+and required origin snapshots precede their dependents. A clone without a local
+incremental base needs its origin snapshot as `from`; send its first target from
+that origin. Origins within the package root must be included or retained as a
+base or `retainedSnapshots`. An origin outside the package root must already exist on the receiver.
+The root selection must end with `finalSnapshot`. Encrypted datasets require raw
+streams. Supply the same options to the header and all selected substreams.
+
+The metadata catalogue contains the selected targets, their bases, and explicit
+`retainedSnapshots`;
+it is authoritative for `zfs receive -F`, which can remove omitted datasets and
+snapshots at the destination. This API does not include snapshot holds, perform
+the sends, or validate the receiver state. Header generation does not hold the
+snapshots against concurrent rename or destruction.
+
 A send stream has one consumer. Releasing it before the end may block while
 OpenZFS finishes producing and the stream is drained.
 
@@ -140,6 +213,7 @@ OpenZFS finishes producing and the stream is drained.
 - ``DatasetType``
 - ``SendStream``
 - ``SendOptions``
+- ``ReplicationDataset``
 
 ### Values and errors
 
